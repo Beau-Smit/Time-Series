@@ -3,6 +3,8 @@ title: "Compile NASS Data"
 output: html_document
 ---
 
+This script compiles USDA NASS data using the usdarnass package, in preparation for our final project in MSCA31006. Data can be explored here: https://quickstats.nass.usda.gov/
+
 ```{r setup, include=FALSE}
 library(httr)
 library(usdarnass)
