@@ -1,0 +1,206 @@
+---
+title: "Compile NASS Data"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(httr)
+library(usdarnass)
+library(tidyverse)
+library(forecast)
+library(knitr)
+
+api_key = '38FACF75-84D1-340C-A983-D12CEFD333C0'
+nass_set_key(api_key)
+```
+
+## Wheat
+
+```{r}
+commodity_desc = "WHEAT"
+short_desc = "WHEAT, SPRING, (EXCL DURUM) - YIELD, MEASURED IN BU / ACRE"
+state_name = "MINNESOTA"
+agg_level_desc = "STATE"
+reference_period_desc = "YEAR"
+
+wheat = nass_data(commodity_desc = commodity_desc,
+                  state_name = state_name,
+                  short_desc = short_desc,
+                  agg_level_desc = agg_level_desc,
+                  reference_period_desc = reference_period_desc)
+
+wheat = wheat %>% 
+        mutate(Wheat_BUperAcre = as.double(Value),
+               Year = as.numeric(year)) %>% 
+        select(Wheat_BUperAcre, Year) %>% 
+        arrange(Year)
+
+tsdisplay(wheat$Wheat_BUperAcre)
+```
+
+## Corn
+
+```{r}
+commodity_desc = "CORN"
+short_desc = "CORN, GRAIN - YIELD, MEASURED IN BU / ACRE"
+
+corn = nass_data(commodity_desc = commodity_desc,
+                  state_name = state_name,
+                  short_desc = short_desc,
+                  agg_level_desc = agg_level_desc,
+                  reference_period_desc = reference_period_desc)
+
+corn = corn %>% 
+        mutate(Corn_BUperAcre = as.double(Value),
+               Year = as.numeric(year)) %>% 
+        select(Corn_BUperAcre, Year) %>% 
+        arrange(Year)
+
+tsdisplay(corn$Corn_BUperAcre)
+```
+
+## Soy
+
+```{r}
+commodity_desc = "SOYBEANS"
+short_desc = "SOYBEANS - YIELD, MEASURED IN BU / ACRE"
+
+soy = nass_data(commodity_desc = commodity_desc,
+                  state_name = state_name,
+                  short_desc = short_desc,
+                  agg_level_desc = agg_level_desc,
+                  reference_period_desc = reference_period_desc)
+
+soy = soy %>% 
+        mutate(Soy_BUperAcre = as.double(Value),
+               Year = as.numeric(year)) %>% 
+        select(Soy_BUperAcre, Year) %>% 
+        arrange(Year)
+
+tsdisplay(soy$Soy_BUperAcre)
+```
+
+# Inputs
+
+These don't go as far back in time, so might not be super useful, but will join it anyways. 
+
+## Wheat - Inputs
+
+```{r}
+commodity_desc = "WHEAT"
+short_desc = "WHEAT, SPRING, (EXCL DURUM) - APPLICATIONS, MEASURED IN LB"
+state_name = "MINNESOTA"
+agg_level_desc = "STATE"
+reference_period_desc = "YEAR"
+domain_desc = 'FERTILIZER'
+
+wheat_input = nass_data(commodity_desc = commodity_desc,
+                  state_name = state_name,
+                  short_desc = short_desc,
+                  agg_level_desc = agg_level_desc,
+                  reference_period_desc = reference_period_desc,
+                  domain_desc = domain_desc)
+
+wheat_input = wheat_input %>% 
+        mutate(WheatFertilizer_LB = as.double(str_remove_all(Value, ',')),
+               Year = as.numeric(year),
+               InputType = str_extract(domaincat_desc, '(?<=\\().*(?<!\\))')) %>% 
+        select(InputType, WheatFertilizer_LB, Year) %>% 
+        arrange(Year)
+
+ggplot(data = wheat_input, aes(x = Year, y = WheatFertilizer_LB, col = InputType)) +
+    geom_point() + 
+    geom_line()
+```
+
+## Corn - Inputs
+
+```{r}
+commodity_desc = "CORN"
+short_desc = "CORN - APPLICATIONS, MEASURED IN LB"
+state_name = "MINNESOTA"
+agg_level_desc = "STATE"
+reference_period_desc = "YEAR"
+domain_desc = 'FERTILIZER'
+
+corn_input = nass_data(commodity_desc = commodity_desc,
+                  state_name = state_name,
+                  short_desc = short_desc,
+                  agg_level_desc = agg_level_desc,
+                  reference_period_desc = reference_period_desc,
+                  domain_desc = domain_desc)
+
+corn_input = corn_input %>% 
+        mutate(CornFertilizer_LB = as.double(str_remove_all(Value, ',')),
+               Year = as.numeric(year),
+               InputType = str_extract(domaincat_desc, '(?<=\\().*(?<!\\))')) %>% 
+        select(InputType, CornFertilizer_LB, Year) %>% 
+        arrange(Year)
+
+ggplot(data = corn_input, aes(x = Year, y = CornFertilizer_LB, col = InputType)) +
+    geom_point() + 
+    geom_line()
+```
+## Soy - Inputs
+
+```{r}
+commodity_desc = "SOYBEANS"
+short_desc = "SOYBEANS - APPLICATIONS, MEASURED IN LB"
+state_name = "MINNESOTA"
+agg_level_desc = "STATE"
+reference_period_desc = "YEAR"
+domain_desc = 'FERTILIZER'
+
+soy_input = nass_data(commodity_desc = commodity_desc,
+                  state_name = state_name,
+                  short_desc = short_desc,
+                  agg_level_desc = agg_level_desc,
+                  reference_period_desc = reference_period_desc,
+                  domain_desc = domain_desc)
+
+soy_input = soy_input %>% 
+        mutate(SoyFertilizer_LB = as.double(str_remove_all(Value, ',')),
+               Year = as.numeric(year),
+               InputType = str_extract(domaincat_desc, '(?<=\\().*(?<!\\))')) %>% 
+        select(InputType, SoyFertilizer_LB, Year) %>% 
+        arrange(Year)
+
+ggplot(data = soy_input, aes(x = Year, y = SoyFertilizer_LB, col = InputType)) +
+    geom_point() + 
+    geom_line()
+```
+
+# Joining data together
+
+```{r}
+corn = corn %>% left_join(corn_input %>% pivot_wider(names_from = 'InputType',
+                                                     values_from = 'CornFertilizer_LB',
+                                                     names_prefix = 'Corn_'), by = 'Year')
+
+wheat = wheat %>% left_join(wheat_input %>% pivot_wider(names_from = 'InputType',
+                                                        values_from = 'WheatFertilizer_LB',
+                                                        names_prefix = 'Wheat_'), by = 'Year')
+
+soy = soy %>% left_join(soy_input %>% pivot_wider(names_from = 'InputType',
+                                                  values_from = 'SoyFertilizer_LB',
+                                                  names_prefix = 'Soy_'), by = 'Year')
+```
+
+```{r}
+MN_ag = corn %>% 
+    left_join(wheat, on = 'Year') %>% 
+    left_join(soy, on = 'Year') %>% 
+    arrange(desc(Year)) %>% 
+    select(Year, Corn_BUperAcre, Wheat_BUperAcre, Soy_BUperAcre,
+           Corn_NITROGEN, Corn_PHOSPHATE, Corn_POTASH, Corn_SULFUR,
+           Wheat_NITROGEN, Wheat_PHOSPHATE, Wheat_POTASH, Wheat_SULFUR,
+           Soy_NITROGEN, Soy_PHOSPHATE, Soy_POTASH, Soy_SULFUR)
+```
+```{r}
+kable(MN_ag)
+```
+
+```{r}
+MN_ag %>% write_csv('MN_Ag_YieldsAndInputs.csv')
+```
+
