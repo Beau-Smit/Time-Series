@@ -1,0 +1,40 @@
+---
+title: "andresc_dataexploration"
+author: "Andres Crucetta"
+date: "2/25/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(httr)
+library(usdarnass)
+library(tidyverse)
+library(forecast)
+library(knitr)
+library("ggplot2")
+library("stats")
+library("tidyverse")
+library("forecast")
+library("TSA")
+library("tseries")
+library("MLmetrics")
+library("MuMIn")
+```
+
+```{r reading_csv}
+agg_yield <- read_csv('MN_Ag_YieldsAndInputs.csv')
+agg_yield <- agg_yield %>% arrange(desc(Year))
+
+# Splitting into training and testing
+training <- rev(agg_yield %>% filter(agg_yield$Year<2010))
+testing <- rev(agg_yield %>% filter(agg_yield$Year>=2010))
+
+training_ts <- ts(rev(ts(training$Corn_BUperAcre,start=c("1866",1))),start=c('1866',1))
+testing_ts <- ts(rev(ts(testing$Corn_BUperAcre,start=c("2010",1))),start=c('2010',1))
+```
+
+```{r}
+checkresiduals(training_ts)
+```
+
