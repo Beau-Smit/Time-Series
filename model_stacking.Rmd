@@ -15,23 +15,31 @@ library(ggplot2)
 ```
 
 ```{r}
-# you can get these variables in your environment if you run baseline_models.Rmd
-naive_predictions
-drift_predictions
-holt_predictions
-arima_predictions
+# original data
+ag_df <- read.csv('MN_Ag_YieldsAndInputs.csv') %>% 
+  mutate(set = ifelse(Year < 2017, "train", "validation"),
+         set= ifelse(Year > 2020, "test", set))
 
-# put into data frame
-preds <- cbind(naive_predictions, drift_predictions, holt_predictions, arima_predictions) %>% 
-  as.tibble()
+corn_train <- ag_df %>% 
+  filter(set == "train") %>%
+  select(Year, Corn_BUperAcre)
+
+corn_validation <- ag_df %>% 
+  filter(set == "validation") %>%
+  select(Year, Corn_BUperAcre)
+
+corn_test <- ag_df %>% 
+  filter(set == "test") %>%
+  select(Year, Corn_BUperAcre)
+
+corn_preds <- read.csv("corn_predictions.csv")
 ```
 
-# Simply take the average of the model predictions
+### Simply take the average of the model predictions
 
 ```{r}
-mean_preds <- preds %>% 
-  mutate(mean_pred = rowMeans(preds),
-         Year=seq(from=2017, to=2021))
+mean_preds <- corn_preds %>% 
+  mutate(mean_pred = rowMeans(corn_preds %>% select(-Year)))
 ```
 
 ```{r}
@@ -45,21 +53,33 @@ ggplot(data = plot_df) +
   geom_line(aes(x=Year, y=mean_pred, color="prediction"))
 ```
 
-# build a linear regression to stack models
+### build a linear regression to stack models
 
 ```{r}
-reg_df <- cbind(preds, corn_test)
-linear_model <- glm(corn_test ~ naive_predictions + drift_predictions + holt_predictions + arima_predictions, data=reg_df)
+validation_set <- corn_validation %>%
+  left_join(corn_preds, by="Year")
 
-# TODO: the meta model should probably be trained on validation set, not the test set
 
-predict(linear_model)
-linear_model$residuals
+stacking_model <- glm(Corn_BUperAcre ~ 0 + drift_predictions + holt_predictions + arima_predictions, data=validation_set)
+
+summary(stacking_model)
+
+predicted <- predict(stacking_model, newdata = corn_preds %>% filter(Year == 2021))
+observed <- corn_test$Corn_BUperAcre
+
+predicted - observed
 ```
 
+This is simplified code. Really, we should use sliding/expanding window cross validation to learn the stacking coefficients.
+
 ```{r}
+# TODO: add linear regression into graph
 ggplot(data = plot_df) + 
   geom_line(aes(x=Year, y=Corn_BUperAcre)) + 
   geom_line(aes(x=Year, y=mean_pred, color="prediction"))
+```
+
+```{r}
+# TODO: other stacking methods - rf?
 ```
 

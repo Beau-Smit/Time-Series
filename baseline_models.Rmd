@@ -44,9 +44,9 @@ soy_test <- window(soy_ts, start=first_test_yr)
 h <- 5
 
 # naive method
-plot(naive(corn_train, h=h))
-plot(naive(wheat_train, h=h))
-plot(naive(soy_train, h=h))
+plot(naive(corn_train, h=h), ylab="corn")
+plot(naive(wheat_train, h=h), ylab="wheat")
+plot(naive(soy_train, h=h), ylab="soy")
 
 # actual estimates
 naive_predictions <- naive(corn_train, h=h)$mean
@@ -77,4 +77,13 @@ lam <- BoxCox.lambda(corn_train)
 arima_mdl <- auto.arima(corn_train, lambda = lam)
 arima_predictions <- (forecast(arima_mdl, h=h))$mean
 plot(forecast(arima_mdl, h=h))
+```
+
+```{r}
+# put into data frame
+preds <- cbind(naive_predictions, drift_predictions, holt_predictions, arima_predictions) %>% 
+  as.tibble() %>%
+  mutate(Year = seq(from=first_test_yr, to=max(ag_df$Year)))
+
+write.csv(preds, "commodities_predictions.csv", row.names = FALSE)
 ```
