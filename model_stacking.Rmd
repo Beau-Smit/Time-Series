@@ -1,0 +1,65 @@
+---
+title: "Model Stacking"
+author: "Beau Smit"
+date: "2/28/2022"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(dplyr)
+library(ggplot2)
+```
+
+```{r}
+# you can get these variables in your environment if you run baseline_models.Rmd
+naive_predictions
+drift_predictions
+holt_predictions
+arima_predictions
+
+# put into data frame
+preds <- cbind(naive_predictions, drift_predictions, holt_predictions, arima_predictions) %>% 
+  as.tibble()
+```
+
+# Simply take the average of the model predictions
+
+```{r}
+mean_preds <- preds %>% 
+  mutate(mean_pred = rowMeans(preds),
+         Year=seq(from=2017, to=2021))
+```
+
+```{r}
+plot_df <- ag_df %>%
+  dplyr::select(c("Year", "Corn_BUperAcre")) %>%
+  left_join(., mean_preds, by="Year") %>%
+  dplyr::select(c("Year", "Corn_BUperAcre", "mean_pred"))
+
+ggplot(data = plot_df) + 
+  geom_line(aes(x=Year, y=Corn_BUperAcre)) + 
+  geom_line(aes(x=Year, y=mean_pred, color="prediction"))
+```
+
+# build a linear regression to stack models
+
+```{r}
+reg_df <- cbind(preds, corn_test)
+linear_model <- glm(corn_test ~ naive_predictions + drift_predictions + holt_predictions + arima_predictions, data=reg_df)
+
+# TODO: the meta model should probably be trained on validation set, not the test set
+
+predict(linear_model)
+linear_model$residuals
+```
+
+```{r}
+ggplot(data = plot_df) + 
+  geom_line(aes(x=Year, y=Corn_BUperAcre)) + 
+  geom_line(aes(x=Year, y=mean_pred, color="prediction"))
+```
+
