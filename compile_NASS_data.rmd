@@ -11,6 +11,7 @@ library(usdarnass)
 library(tidyverse)
 library(forecast)
 library(knitr)
+library(geodata)
 
 api_key = '38FACF75-84D1-340C-A983-D12CEFD333C0'
 nass_set_key(api_key)
@@ -204,5 +205,12 @@ kable(MN_ag)
 
 ```{r}
 MN_ag %>% write_csv('MN_Ag_YieldsAndInputs.csv')
+```
+
+## Using Geodata to get CMIP6 data for Minnesota
+
+```{r}
+#min temp for SSP126 - the good, low carbon, green everything scenario
+cmip6_world(model = 'CNRM-CM6-1', var = 'tmin', time="2021-2040", res = 2.5, ssp = '126', path='CMIP6_Geodata/')
 ```
 

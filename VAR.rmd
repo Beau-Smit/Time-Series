@@ -98,7 +98,9 @@ for (p_lag in 5:1) {
       newlines = data.frame(mae_corn, mae_wheat, mae_soy) %>%
           t() %>% 
           cbind(data.frame(model = 'Expanding VAR',
-                           crop = c('Corn', 'Wheat', 'Soy')))
+                           crop = c('Corn', 'Wheat', 'Soy'),
+                           n_train = nrow(train_expand),
+                           lag_order = p_lag))
 
       mae_df = bind_rows(mae_df, newlines)
 
@@ -113,7 +115,9 @@ for (p_lag in 5:1) {
       newlines = data.frame(mae_corn, mae_wheat, mae_soy) %>%
           t() %>% 
           cbind(data.frame(model = 'Sliding VAR',
-                           crop = c('Corn', 'Wheat', 'Soy')))
+                           crop = c('Corn', 'Wheat', 'Soy'),
+                           n_train = nrow(train_slide),
+                           lag_order = p_lag))
       
       mae_df = bind_rows(mae_df, newlines)
 
@@ -126,5 +130,21 @@ for (p_lag in 5:1) {
     }    
 }
 
+```
+
+```{r}
+rownames(mae_df) = 1:nrow(mae_df)
+plot_mae = pivot_longer(mae_df, cols = -c('model', 'crop', 'lag_order', 'n_train')) %>%
+    rename(horizon = name,
+           abs_error = value) %>% 
+    mutate(horizon = as.integer(horizon))
+```
+
+
+```{r fig.width=10, fig.height=14}
+ggplot(plot_mae, aes(x = horizon, y = abs_error, col=model)) +
+  facet_grid(paste0('lag ', lag_order)~crop) + 
+  geom_smooth() + 
+  ylab('MAE')
 ```
 
