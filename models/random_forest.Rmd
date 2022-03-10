@@ -1,0 +1,125 @@
+---
+title: "andresc_dataexploration"
+author: "Andres Crucetta"
+date: "2/25/2022"
+output: html_document
+---
+```{r}
+install.packages('randomForest', repos = "http://cran.us.r-project.org")
+```
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(httr)
+library(usdarnass)
+library(tidyverse)
+library(forecast)
+library(knitr)
+library("ggplot2")
+library("stats")
+library("tidyverse")
+library("forecast")
+library("TSA")
+library("tseries")
+library("MLmetrics")
+library("MuMIn")
+library("randomForest")
+```
+
+```{r reading_csv}
+ag_df = read.csv('MN_Ag_YieldsAndInputs.csv')
+
+# only keep years where all 3 commodities have values
+ag_df = ag_df[!is.na(ag_df$Soy_BUperAcre),] %>% arrange(Year)
+
+# make into time series
+corn_ts <- ts(ag_df$Corn_BUperAcre, start = min(ag_df$Year), frequency = 1)
+wheat_ts <- ts(ag_df$Wheat_BUperAcre, start = min(ag_df$Year), frequency = 1)
+soy_ts <- ts(ag_df$Soy_BUperAcre, start = min(ag_df$Year), frequency = 1)
+
+# split train and test sets
+first_test_yr <- 2017
+
+corn_train <- window(corn_ts, end=first_test_yr-1)
+corn_test <- window(corn_ts, start=first_test_yr)
+
+wheat_train <- window(wheat_ts, end=first_test_yr-1)
+wheat_test <- window(wheat_ts, start=first_test_yr)
+
+soy_train <- window(soy_ts, end=first_test_yr-1)
+soy_test <- window(soy_ts, start=first_test_yr)
+```
+
+```{r}
+autoplot(corn_ts,main="Corn Production 1934-2016")
+autoplot(diff(corn_ts),main="Differenced Corn Production 1934-2016")
+```
+
+
+```{r}
+lag_order <- 5 # the desired number of lags (six months)
+horizon <- 5 # the forecast horizon (twelve months)
+
+corn_embed <- embed(corn_ts, lag_order+1)
+
+y_train <- corn_embed[, 1] # the target
+X_train <- corn_embed[, -1] # everything but the target
+
+y_test <- window(corn_ts, start = c(2017), end = c(2021))
+X_test <- corn_embed[nrow(corn_embed), c(1:lag_order)] # the test set consisting
+# of the six most recent values (we have six lags) of the training set. It's the
+# same for all models.
+```
+
+```{r}
+forecasts_rf <- numeric(horizon)
+
+for (i in 1:horizon){
+  # set seed
+  set.seed(2019)
+
+  # fit the model
+  fit_rf <- randomForest(X_train, y_train)
+
+  # predict using the test set
+  forecasts_rf[i] <- predict(fit_rf, X_test)
+
+  # here is where we repeatedly reshape the training data to reflect the time distance
+  # corresponding to the current forecast horizon.
+  y_train <- y_train[-1] 
+
+  X_train <- X_train[-nrow(X_train), ] 
+}
+```
+
+
+```{r}
+
+# convert to ts format
+y_pred <- ts(
+  forecasts_rf,
+  start = c(2016),
+  frequency = 1
+)
+
+benchmark <- forecast(naive(corn_train), h = horizon)
+
+autoplot(corn_train) +
+  autolayer(y_pred,series="Random Forest Prediction")+
+  autolayer(y_test,series="Actual Values")
+
+autoplot(corn_train)+
+  autolayer(benchmark,series="Naive Forecast")
+
+accuracy(y_pred, y_test)
+```
+
+
+```{r}
+
+accuracy(y_pred,y_test)
+accuracy(benchmark, y_test)
+
+```
+
