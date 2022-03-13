@@ -6,26 +6,25 @@ output: html_document
 ---
 ```{r}
 install.packages('randomForest', repos = "http://cran.us.r-project.org")
+install.packages('caret', repos = "http://cran.us.r-project.org")
 ```
 
-
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+```{r}
 library(httr)
 library(usdarnass)
 library(tidyverse)
 library(forecast)
 library(knitr)
-library("ggplot2")
-library("stats")
 library("tidyverse")
 library("forecast")
 library("TSA")
 library("tseries")
-library("MLmetrics")
 library("MuMIn")
 library("randomForest")
+library(gbm)
+library(caret)
 ```
+
 
 ```{r reading_csv}
 ag_df = read.csv('MN_Ag_YieldsAndInputs.csv')
@@ -58,59 +57,98 @@ autoplot(diff(corn_ts),main="Differenced Corn Production 1934-2016")
 
 
 ```{r}
-lag_order <- 5 # the desired number of lags (six months)
-horizon <- 5 # the forecast horizon (twelve months)
+lag_order <- 6 # the desired number of lags (6 years)
+horizon <- 5 # the forecast horizon (5 years)
 
 corn_embed <- embed(corn_ts, lag_order+1)
 
 y_train <- corn_embed[, 1] # the target
 X_train <- corn_embed[, -1] # everything but the target
 
-y_test <- window(corn_ts, start = c(2017), end = c(2021))
-X_test <- corn_embed[nrow(corn_embed), c(1:lag_order)] # the test set consisting
-# of the six most recent values (we have six lags) of the training set. It's the
-# same for all models.
+y_test <- window(corn_ts, start = c(2016), end = c(2021))
+X_test <- tail(corn_embed[,-1])
+```
+
+```{r ts_crossval}
+#### creating sampling seeds ####
+set.seed(123)
+seeds <- vector(mode = "list", length = 528)
+for(i in 1:527) seeds[[i]] <- sample.int(1000, 5)
+
+## For the last model:
+seeds[[528]] <- sample.int(1000, 1)
+
+#########
+myTimeControl <- trainControl(method = "timeslice",
+                              initialWindow = 60,
+                              horizon = 5,
+                              fixedWindow = FALSE,
+                              allowParallel = TRUE,
+                              seeds = seeds)
+
+colnames(X_train) <- c('Lag1','Lag2','Lag3','Lag4','Lag5','Lag6')
+colnames(X_test) <- c('Lag1','Lag2','Lag3','Lag4','Lag5','Lag6')
+
+tuneLength.num <- 5
+
+rf.mod <- train(x=X_train,
+                y=y_train,
+                method = "rf",
+                ntree=5,
+                trControl = myTimeControl,
+                tuneLength=tuneLength.num,
+                metric='RMSE')
+
+gbm.mod <- train(x=X_train,
+                y=y_train,
+                method = "gbm",
+                trControl = myTimeControl,
+                tuneLength=tuneLength.num,
+                metric='RMSE')
 ```
 
 ```{r}
-forecasts_rf <- numeric(horizon)
+resamps <- resamples(list(gbm=xg.mod,
+                          rf=rf.mod))
 
-for (i in 1:horizon){
-  # set seed
-  set.seed(2019)
+ss <- summary(resamps)
 
-  # fit the model
-  fit_rf <- randomForest(X_train, y_train)
+knitr::kable(ss[[3]]$RMSE)
 
-  # predict using the test set
-  forecasts_rf[i] <- predict(fit_rf, X_test)
+trellis.par.set(caretTheme())
+dotplot(resamps, metric = "RMSE")
 
-  # here is where we repeatedly reshape the training data to reflect the time distance
-  # corresponding to the current forecast horizon.
-  y_train <- y_train[-1] 
-
-  X_train <- X_train[-nrow(X_train), ] 
-}
 ```
 
+```{r testing}
+forecasts_rf <- predict(rf.mod, X_test)
+forecasts_gbm <- predict(gbm.mod, X_test)
+
+```
 
 ```{r}
 
 # convert to ts format
-y_pred <- ts(
+y_pred_rf <- ts(
   forecasts_rf,
   start = c(2016),
   frequency = 1
 )
 
+y_pred_gbm <- ts(
+  forecasts_gbm,
+  start = c(2016),
+  frequency = 1
+)
+
+
 benchmark <- forecast(naive(corn_train), h = horizon)
 
 autoplot(corn_train) +
   autolayer(y_pred,series="Random Forest Prediction")+
-  autolayer(y_test,series="Actual Values")
-
-autoplot(corn_train)+
-  autolayer(benchmark,series="Naive Forecast")
+  autolayer(y_test,series="Actual Values") +
+  autolayer(benchmark$mean,series="Naive Forecast")+
+  autolayer(y_pred_xgb,series="Gradient Boost")
 
 accuracy(y_pred, y_test)
 ```
