@@ -37,3 +37,6 @@ vignettes/*.pdf
 
 # R Environment Variables
 .Renviron
+
+# Giant tar gz of CMIP5
+/data/CMIP5_Agroclimatic

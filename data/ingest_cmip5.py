@@ -5,7 +5,7 @@ import os
 import argparse
 import re
 
-def ingest_cmip5(download_dir, out_csv):
+def ingest_cmip5(download_dir, out_dir, bin_lens = ['month', 'year']):
     netcdf_paths = os.listdir(download_dir)
     for netcdf_path in netcdf_paths:
 
@@ -24,8 +24,6 @@ def ingest_cmip5(download_dir, out_csv):
                 "lon": tgt_lon
             }
         ).drop("time_bounds")
-
-        left_bin = westMN.time[np.arange(0, westMN.dims["time"], 3)].to_numpy()
 
         sum_vars = [
             "BEDD",  # Biologically effective degree days
@@ -57,39 +55,57 @@ def ingest_cmip5(download_dir, out_csv):
             "DTR",  # Mean of diurnal temperature range
         ]
 
-        if var in sum_vars:
-            aggWestMN = westMN.groupby_bins("time", left_bin).sum(
-                dim=["time", "lat", "lon"]
-            )
-        elif var in max_vars:
-            aggWestMN = westMN.groupby_bins("time", left_bin).max(
-                dim=["time", "lat", "lon"]
-            )
-        elif var in min_vars:
-            aggWestMN = westMN.groupby_bins("time", left_bin).min(
-                dim=["time", "lat", "lon"]
-            )
-        elif var in mean_vars:
-            aggWestMN = westMN.groupby_bins("time", left_bin).mean(
-                dim=["time", "lat", "lon"]
-            )
-        else:
-            raise ValueError("Variable " + var + " has no defined aggregation!")
+        for bin_len in bin_lens:
+            if bin_len == 'month':
+                step = 3 #number of 10 day windows in a month
+            elif bin_len == 'year':
+                step = 36 #number of 10 day windows in a year
+            left_bin = westMN.time[np.arange(0, westMN.dims["time"], step)]\
+                .to_numpy()
 
-        aggWestMN = aggWestMN.to_dataframe()
 
-        aggWestMN.loc[:, "feature"] = var
-        aggWestMN.loc[:, "scenario"] = scenario
+            if var in sum_vars:
+                aggWestMN = westMN.groupby_bins("time", left_bin).sum(
+                    dim=["time", "lat", "lon"]
+                )
+            elif var in max_vars:
+                aggWestMN = westMN.groupby_bins("time", left_bin).max(
+                    dim=["time", "lat", "lon"]
+                )
+            elif var in min_vars:
+                aggWestMN = westMN.groupby_bins("time", left_bin).min(
+                    dim=["time", "lat", "lon"]
+                )
+            elif var in mean_vars:
+                aggWestMN = westMN.groupby_bins("time", left_bin).mean(
+                    dim=["time", "lat", "lon"]
+                )
+            else:
+                raise ValueError("Variable " + var + " has no defined aggregation!")
 
-        aggWestMN.to_csv(out_csv, mode="a", header=False)
+            aggWestMN = aggWestMN.to_dataframe().reset_index()\
+                .rename(columns = {'index':'date_bin'})
+            aggWestMN.loc[:, "year"] = \
+                aggWestMN.date_bin.apply(lambda x: x.left.year)
+
+            if bin_len == 'month':
+                aggWestMN.loc[:, "month"] = \
+                    aggWestMN.date_bin.apply(lambda x: x.left.month)
+
+            aggWestMN.loc[:, "feature"] = var
+            aggWestMN.loc[:, "scenario"] = scenario
+            aggWestMN = aggWestMN.drop(columns='date_bin')
+
+            out_csv = out_dir + "CMIP5_Agro_" + bin_len + ".csv"
+            aggWestMN.to_csv(out_csv, mode="a", header=False)
 
 
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("download_dir", type=str)
-    parser.add_argument("--out_csv", type=str, required=False, default="CMIP5_Agro.csv")
+    parser.add_argument("--out_dir", type=str, required=False, default="")
 
     args = parser.parse_args()
 
-    ingest_cmip5(args.download_dir, args.out_csv)
+    ingest_cmip5(args.download_dir, args.out_dir)
