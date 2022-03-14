@@ -2,47 +2,29 @@
 title: "Model Stacking"
 author: "Beau Smit"
 date: "2/28/2022"
-output: pdf_document
+output:
+  html_document:
+    df_print: paged
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-```{r}
+```{r message=FALSE, warning=FALSE}
 library(dplyr)
 library(ggplot2)
-```
-
-```{r}
-# original data
-ag_df <- read.csv('MN_Ag_YieldsAndInputs.csv') %>% 
-  mutate(set = ifelse(Year < 2017, "train", "validation"),
-         set= ifelse(Year > 2020, "test", set))
-
-corn_train <- ag_df %>% 
-  filter(set == "train") %>%
-  select(Year, Corn_BUperAcre)
-
-corn_validation <- ag_df %>% 
-  filter(set == "validation") %>%
-  select(Year, Corn_BUperAcre)
-
-corn_test <- ag_df %>% 
-  filter(set == "test") %>%
-  select(Year, Corn_BUperAcre)
-
-corn_preds <- read.csv("corn_predictions.csv")
+library(caret)
 ```
 
 ### Simply take the average of the model predictions
 
-```{r}
+```{r eval=FALSE, include=FALSE}
 mean_preds <- corn_preds %>% 
   mutate(mean_pred = rowMeans(corn_preds %>% select(-Year)))
 ```
 
-```{r}
+```{r eval=FALSE, include=FALSE}
 plot_df <- ag_df %>%
   dplyr::select(c("Year", "Corn_BUperAcre")) %>%
   left_join(., mean_preds, by="Year") %>%
@@ -53,33 +35,98 @@ ggplot(data = plot_df) +
   geom_line(aes(x=Year, y=mean_pred, color="prediction"))
 ```
 
-### build a linear regression to stack models
+### Build stacking model
 
 ```{r}
-validation_set <- corn_validation %>%
-  left_join(corn_preds, by="Year")
+#### creating sampling seeds ####
+set.seed(123)
+seeds <- vector(mode = "list", length = 528)
+for(i in 1:527) seeds[[i]] <- sample.int(1000, 25)
 
+## For the last model:
+seeds[[528]] <- sample.int(1000, 1)
 
-stacking_model <- glm(Corn_BUperAcre ~ 0 + drift_predictions + holt_predictions + arima_predictions, data=validation_set)
+myTimeControl <- trainControl(method = "timeslice",
+                              initialWindow = 10,
+                              horizon = 5,
+                              fixedWindow = FALSE,
+                              allowParallel = TRUE,
+                              seeds = seeds)
+tuneLength.num <- 5
 
-summary(stacking_model)
-
-predicted <- predict(stacking_model, newdata = corn_preds %>% filter(Year == 2021))
-observed <- corn_test$Corn_BUperAcre
-
-predicted - observed
+# function to take an arbitrary number of models that use the predict() method and stack them
+fit_stacked_mdl <- function(true_values, predictions){
+  # train the stacked model with time series cross validation
+  n_models <- dim(predictions)[2]
+  
+  stacked.mod <- train(x=predictions,
+                  y=true_values,
+                  method = "lm", # "lm"
+                  trControl = myTimeControl,
+                  tuneLength=tuneLength.num,
+                  metric='RMSE')
+  
+  print(stacked.mod$finalModel)
+  
+  return(stacked.mod)
+  
+}
 ```
 
-This is simplified code. Really, we should use sliding/expanding window cross validation to learn the stacking coefficients.
+```{r include=FALSE}
+# example set of 3 models' predictions, just combine them and pass into fit_stacked_mdl()
+#random_preds_1 <- runif(100, min=170, max=200)
+#random_preds_2 <- runif(100, min=165, max=205)
+#norm_preds <- rnorm(100, mean=185, sd=10)
 
-```{r}
-# TODO: add linear regression into graph
-ggplot(data = plot_df) + 
-  geom_line(aes(x=Year, y=Corn_BUperAcre)) + 
-  geom_line(aes(x=Year, y=mean_pred, color="prediction"))
+#predictions <- cbind(random_preds_1, random_preds_2, norm_preds)
+#true_values <- rep(corn_validation$Corn_BUperAcre, 25)
+#fit_stacked_mdl(true_values, predictions)
 ```
 
 ```{r}
-# TODO: other stacking methods - rf?
+# TODO: metric could be percentage so we can compare corn to wheat to soy predictions
+```
+
+```{r}
+# corn
+corn_preds <- read.csv("../data/corn_baseline_predictions.csv")
+corn_true_values <- corn_preds$true_value
+corn_predictions <- corn_preds %>% select(naive, drift, holt, arima)
+corn_stacked.mod <- fit_stacked_mdl(corn_true_values, corn_predictions)
+
+print(corn_stacked.mod)
+
+fitted <- predict(corn_stacked.mod, corn_predictions)
+plot(corn_true_values, type='l', main='Fitted values')
+lines(fitted, col='red')
+```
+
+```{r}
+# wheat
+wheat_preds <- read.csv("../data/wheat_baseline_predictions.csv")
+wheat_true_values <- wheat_preds$true_value
+wheat_predictions <- wheat_preds %>% select(naive, drift, holt, arima)
+wheat_stacked.mod <- fit_stacked_mdl(wheat_true_values, wheat_predictions)
+
+print(wheat_stacked.mod)
+
+fitted <- predict(wheat_stacked.mod, wheat_predictions)
+plot(wheat_true_values, type='l', main='Fitted values')
+lines(fitted, col='red')
+```
+
+```{r}
+# soy
+soy_preds <- read.csv("../data/soy_baseline_predictions.csv")
+soy_true_values <- soy_preds$true_value
+soy_predictions <- soy_preds %>% select(naive, drift, holt, arima)
+soy_stacked.mod <- fit_stacked_mdl(soy_true_values, soy_predictions)
+
+print(soy_stacked.mod)
+
+fitted <- predict(soy_stacked.mod, soy_predictions)
+plot(soy_true_values, type='l', main='Fitted values')
+lines(fitted, col='red')
 ```
 

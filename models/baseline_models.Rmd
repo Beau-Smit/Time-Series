@@ -15,7 +15,7 @@ library(forecast)
 ```
 
 ```{r}
-ag_df = read.csv('MN_Ag_YieldsAndInputs.csv')
+ag_df = read.csv('../data/MN_Ag_YieldsAndInputs.csv')
 ```
 
 ```{r}
@@ -47,18 +47,12 @@ h <- 5
 plot(naive(corn_train, h=h), ylab="corn")
 plot(naive(wheat_train, h=h), ylab="wheat")
 plot(naive(soy_train, h=h), ylab="soy")
-
-# actual estimates
-naive_predictions <- naive(corn_train, h=h)$mean
 ```
 
 ```{r}
 plot(rwf(corn_train, h=h, drift=T))
 plot(rwf(wheat_train, h=h, drift=T))
 plot(rwf(soy_train, h=h, drift=T))
-
-# actual estimates
-drift_predictions <- rwf(corn_train, h=h, drift=T)$mean
 ```
 
 ```{r}
@@ -66,18 +60,75 @@ drift_predictions <- rwf(corn_train, h=h, drift=T)$mean
 plot(holt(corn_train, h=h, damped=T))
 plot(holt(wheat_train, h=h, damped=T, exponential=T))
 plot(holt(soy_train, h=h, damped=T))
-
-# actual estimates
-holt_predictions <- holt(corn_train, h=h, damped=T)$mean
 ```
 
 ```{r}
+# ARIMA
 lam <- BoxCox.lambda(corn_train)
 # auto ARIMA, auto BoxCox
-arima_mdl <- auto.arima(corn_train, lambda = lam)
+arima_mdl <- auto.arima(corn_train, lambda=lam)
 arima_predictions <- (forecast(arima_mdl, h=h))$mean
 plot(forecast(arima_mdl, h=h))
 ```
+
+
+```{r}
+# gather all predictions
+baseline_predictions <- function(train, h){
+  
+  naive_preds <- naive(train, h=h)$mean
+  drift_preds <- rwf(train, h=h, drift=T)$mean
+  holt_preds <- holt(train, h=h, damped=T)$mean
+  
+  lam <- BoxCox.lambda(train)
+  # auto ARIMA, auto BoxCox
+  arima_mdl <- auto.arima(train, lambda=lam)
+  arima_preds <- (forecast(arima_mdl, h=h))$mean
+  
+  preds_df <- cbind(naive_preds, drift_preds, holt_preds, arima_preds)
+  return(preds_df)
+}
+```
+
+```{r}
+corn_preds <- c()
+wheat_preds <- c()
+soy_preds <- c()
+
+for (first_test_yr in 1980:2021){
+  # make predictions on a one year horizon
+  h=1
+  
+  # split train and test sets
+  corn_train <- window(corn_ts, end=first_test_yr-1)
+  corn_test <- window(corn_ts, start=first_test_yr, end=first_test_yr)
+  corn_row <- c(first_test_yr, baseline_predictions(corn_train, h), corn_test)
+  corn_preds <- rbind(corn_preds, corn_row)
+  
+  wheat_train <- window(wheat_ts, end=first_test_yr-1)
+  wheat_test <- window(wheat_ts, start=first_test_yr, end=first_test_yr)
+  wheat_row <- c(first_test_yr, baseline_predictions(wheat_train, h), wheat_test)
+  wheat_preds <- rbind(wheat_preds, wheat_row)
+
+  soy_train <- window(soy_ts, end=first_test_yr-1)
+  soy_test <- window(soy_ts, start=first_test_yr, end=first_test_yr)
+  soy_row <- c(first_test_yr, baseline_predictions(soy_train, h), soy_test)
+  soy_preds <- rbind(soy_preds, soy_row)
+  
+}
+
+col_names <- c('year','naive','drift','holt','arima','true_value')
+colnames(corn_preds) <- col_names
+colnames(wheat_preds) <- col_names
+colnames(soy_preds) <- col_names
+```
+
+```{r}
+write.csv(corn_preds,"../data/corn_baseline_predictions.csv", row.names = FALSE)
+write.csv(wheat_preds,"../data/wheat_baseline_predictions.csv", row.names = FALSE)
+write.csv(soy_preds,"../data/soy_baseline_predictions.csv", row.names = FALSE)
+```
+
 
 ```{r}
 # put into data frame
