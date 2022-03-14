@@ -61,10 +61,10 @@ fit_stacked_mdl <- function(true_values, predictions){
   
   stacked.mod <- train(x=predictions,
                   y=true_values,
-                  method = "lm", # "lm"
+                  method = "lm",
                   trControl = myTimeControl,
                   tuneLength=tuneLength.num,
-                  metric='RMSE')
+                  metric='RMSE') # no MAPE
   
   print(stacked.mod$finalModel)
   
@@ -85,48 +85,84 @@ fit_stacked_mdl <- function(true_values, predictions){
 ```
 
 ```{r}
-# TODO: metric could be percentage so we can compare corn to wheat to soy predictions
+train_test_split <- function(commod, cutoff_year){
+  file_name <- paste0("../data/", commod, "_baseline_predictions.csv")
+  preds <- read.csv(file_name)
+  train <- preds %>% filter(year < cutoff_year)
+  test <- preds %>% filter(year >= cutoff_year)
+  
+  train_test <- list("train" = train, "test" = test)
+  return(train_test)
+}
 ```
 
 ```{r}
-# corn
-corn_preds <- read.csv("../data/corn_baseline_predictions.csv")
-corn_true_values <- corn_preds$true_value
-corn_predictions <- corn_preds %>% select(naive, drift, holt, arima)
-corn_stacked.mod <- fit_stacked_mdl(corn_true_values, corn_predictions)
-
-print(corn_stacked.mod)
-
-fitted <- predict(corn_stacked.mod, corn_predictions)
-plot(corn_true_values, type='l', main='Fitted values')
-lines(fitted, col='red')
+# calculate MAPE for each model
+get_MAPE <- function(true_values, predictions){
+  ape <- ((abs(true_values - predictions)) / abs(true_values)) * 100
+  mape <- round(mean(ape), digits = 2)
+  return(mape)
+}
 ```
 
 ```{r}
-# wheat
-wheat_preds <- read.csv("../data/wheat_baseline_predictions.csv")
-wheat_true_values <- wheat_preds$true_value
-wheat_predictions <- wheat_preds %>% select(naive, drift, holt, arima)
-wheat_stacked.mod <- fit_stacked_mdl(wheat_true_values, wheat_predictions)
+baseline_models <- c("naive", "drift", "holt", "arima")
+commodities <- list("corn", "wheat", "soy")
 
-print(wheat_stacked.mod)
+for (commod in commodities){
+  train_test <- train_test_split(commod, 2017)
+  train <- train_test$train
+  test <- train_test$test
+  
+  y_train <- train$true_value
+  X_train <- train %>% select(naive, drift, holt, arima)
+  y_test <- test$true_value
+  X_test <- test %>% select(naive, drift, holt, arima)
+  
+  stacked.mod <- fit_stacked_mdl(y_train, X_train)
+  
+  #print(stacked.mod)
+  
+  mdl_forecast <- predict(stacked.mod, X_test)
+  mape <- get_MAPE(y_test, mdl_forecast)
+  print(mape)
+  plot_forecast <- c(rep(NA, 2017-1980), mdl_forecast)
+  
+  plot(c(train_test$train$true_value, train_test$test$true_value), type='l', main=commod)
+  lines(plot_forecast, col='red')
+  
+}
+```
 
-fitted <- predict(wheat_stacked.mod, wheat_predictions)
-plot(wheat_true_values, type='l', main='Fitted values')
-lines(fitted, col='red')
+
+```{r}
+train_test <- train_test_split("corn", 2017)
+corn_X_test <- train_test$test %>% select(baseline_models)
+corn_y_test <- train_test$test$true_value
+sapply(corn_X_test, function(x) get_MAPE(corn_y_test, x))
+
+plot(c(train_test$train$true_value, train_test$test$true_value), type='l', main='Corn')
+sapply(corn_X_test, function(x) lines(c(rep(NA, 2017-1980), x), col=x))
 ```
 
 ```{r}
-# soy
-soy_preds <- read.csv("../data/soy_baseline_predictions.csv")
-soy_true_values <- soy_preds$true_value
-soy_predictions <- soy_preds %>% select(naive, drift, holt, arima)
-soy_stacked.mod <- fit_stacked_mdl(soy_true_values, soy_predictions)
+train_test <- train_test_split("wheat", 2017)
+wheat_X_test <- train_test$test %>% select(baseline_models)
+wheat_y_test <- train_test$test$true_value
+sapply(wheat_X_test, function(x) get_MAPE(wheat_y_test, x))
 
-print(soy_stacked.mod)
+plot(c(train_test$train$true_value, train_test$test$true_value), type='l', main='Wheat')
+sapply(wheat_X_test, function(x) lines(c(rep(NA, 2017-1980), x), col=x))
+```
 
-fitted <- predict(soy_stacked.mod, soy_predictions)
-plot(soy_true_values, type='l', main='Fitted values')
-lines(fitted, col='red')
+
+```{r}
+train_test <- train_test_split("soy", 2017)
+soy_X_test <- train_test$test %>% select(baseline_models)
+soy_y_test <- train_test$test$true_value
+sapply(soy_X_test, function(x) get_MAPE(soy_y_test, x))
+
+plot(c(train_test$train$true_value, train_test$test$true_value), type='l', main='Soy')
+sapply(soy_X_test, function(x) lines(c(rep(NA, 2017-1980), x), col=x))
 ```
 
