@@ -4,10 +4,12 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-library(tidyverse)
 library(forecast)
 library(knitr)
 library(vars)
+library(tidyverse)
+library(dplyr)
+
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
@@ -15,10 +17,11 @@ Step 0) read in Corn, Soy, and Wheat data for Minnesota:
 
 ```{r}
 ag_df_all = read_csv("../data/MN_Ag_YieldsAndInputs.csv") %>% arrange(Year)
-# bedd_and_precip = read_csv("../data/CMIP5_Agro_year.csv", col_names = FALSE)
-# colnames(bedd_and_precip) = c('idx', 'value', 'year', 'variable', 'scenario')
-# bedd_and_precip = bedd_and_precip %>%
-#   pivot_wider(names_from = variable, values_from = value)
+bedd_and_precip = read_csv("../data/CMIP5_Agro_year.csv", col_names = FALSE)
+colnames(bedd_and_precip) = c('idx', 'value', 'year', 'variable', 'scenario')
+bedd_and_precip = bedd_and_precip %>%
+  pivot_wider(names_from = variable, values_from = value) %>% 
+  dplyr::select(year, BEDD, RR1, scenario)
 
 ```
 
@@ -63,88 +66,180 @@ ggplot(ag_plot, aes(x = Year, y = value, col = name)) +
 This makes the perturbations look a bit less extreme - we will go with this moving forward. 
 
 ```{r}
-ag_lambda = 0.04355743
-
-ag_transformed = ag_df[,2:4] %>%
-    BoxCox(0.04355743) %>%
-    cbind(Year = ag_df[,1])
-
-lead_years = 5
-mae_df = data.frame()
-aicc_df = data.frame()
-
-for (p_lag in 5:1) {
-
-    for (idx in 40:(nrow(ag_transformed) - 1)){
-      #increase iteration number
-      it_number = idx - 39
-    
-      test_ts = ag_transformed[(idx + 1):(idx + lead_years), 1:3]
-      
-      train_expand = ag_transformed[1:idx, 1:3] %>% ts()
-      train_slide = ag_transformed[(idx - 39):idx, 1:3] %>% ts()
-      
-      # VAR Expanding
-      m1 = VAR(train_expand, p = p_lag, type = 'both')
-      f1 = forecast(m1, h=lead_years)
-
-      mae_corn = abs(f1$forecast$Corn_BUperAcre$mean - test_ts$Corn_BUperAcre)
-      mae_wheat = abs(f1$forecast$Wheat_BUperAcre$mean - test_ts$Wheat_BUperAcre)
-      mae_soy = abs(f1$forecast$Soy_BUperAcre$mean - test_ts$Soy_BUperAcre)
-    
-      newlines = data.frame(mae_corn, mae_wheat, mae_soy) %>%
-          t() %>% 
-          cbind(data.frame(model = 'Expanding VAR',
-                           crop = c('Corn', 'Wheat', 'Soy'),
-                           n_train = nrow(train_expand),
-                           lag_order = p_lag))
-
-      mae_df = bind_rows(mae_df, newlines)
-
-      # VAR Sliding
-      m2 = VAR(train_slide, p = p_lag, type = 'both')
-      f2 = forecast(m2, h=lead_years)
-      
-      mae_corn = abs(f2$forecast$Corn_BUperAcre$mean - test_ts$Corn_BUperAcre)
-      mae_wheat = abs(f2$forecast$Wheat_BUperAcre$mean - test_ts$Wheat_BUperAcre)
-      mae_soy = abs(f2$forecast$Soy_BUperAcre$mean - test_ts$Soy_BUperAcre)
-    
-      newlines = data.frame(mae_corn, mae_wheat, mae_soy) %>%
-          t() %>% 
-          cbind(data.frame(model = 'Sliding VAR',
-                           crop = c('Corn', 'Wheat', 'Soy'),
-                           n_train = nrow(train_slide),
-                           lag_order = p_lag))
-      
-      mae_df = bind_rows(mae_df, newlines)
-    }    
-}
+# ag_lambda = 0.04355743
+# 
+# ag_transformed = ag_df[,2:4] %>%
+#     BoxCox(0.04355743) %>%
+#     cbind(Year = ag_df[,1])
+# 
+# lead_years = 5
+# mae_df = data.frame()
+# aicc_df = data.frame()
+# 
+# for (p_lag in 5:1) {
+# 
+#     for (idx in 40:(nrow(ag_transformed) - 1)){
+#       #increase iteration number
+#       it_number = idx - 39
+#     
+#       test_ts = ag_transformed[(idx + 1):(idx + lead_years), 1:3]
+#       
+#       train_expand = ag_transformed[1:idx, 1:3] %>% ts()
+#       train_slide = ag_transformed[(idx - 39):idx, 1:3] %>% ts()
+#       
+#       # VAR Expanding
+#       m1 = VAR(train_expand, p = p_lag, type = 'both')
+#       f1 = forecast(m1, h=lead_years)
+# 
+#       mae_corn = abs(f1$forecast$Corn_BUperAcre$mean - test_ts$Corn_BUperAcre)
+#       mae_wheat = abs(f1$forecast$Wheat_BUperAcre$mean - test_ts$Wheat_BUperAcre)
+#       mae_soy = abs(f1$forecast$Soy_BUperAcre$mean - test_ts$Soy_BUperAcre)
+#     
+#       newlines = data.frame(mae_corn, mae_wheat, mae_soy) %>%
+#           t() %>% 
+#           cbind(data.frame(model = 'Expanding VAR',
+#                            crop = c('Corn', 'Wheat', 'Soy'),
+#                            n_train = nrow(train_expand),
+#                            lag_order = p_lag))
+# 
+#       mae_df = bind_rows(mae_df, newlines)
+# 
+#       # VAR Sliding
+#       m2 = VAR(train_slide, p = p_lag, type = 'both')
+#       f2 = forecast(m2, h=lead_years)
+#       
+#       mae_corn = abs(f2$forecast$Corn_BUperAcre$mean - test_ts$Corn_BUperAcre)
+#       mae_wheat = abs(f2$forecast$Wheat_BUperAcre$mean - test_ts$Wheat_BUperAcre)
+#       mae_soy = abs(f2$forecast$Soy_BUperAcre$mean - test_ts$Soy_BUperAcre)
+#     
+#       newlines = data.frame(mae_corn, mae_wheat, mae_soy) %>%
+#           t() %>% 
+#           cbind(data.frame(model = 'Sliding VAR',
+#                            crop = c('Corn', 'Wheat', 'Soy'),
+#                            n_train = nrow(train_slide),
+#                            lag_order = p_lag))
+#       
+#       mae_df = bind_rows(mae_df, newlines)
+#     }    
+# }
 
 ```
 
 ```{r}
-rownames(mae_df) = 1:nrow(mae_df)
-plot_mae = pivot_longer(mae_df, cols = -c('model', 'crop', 'lag_order', 'n_train')) %>%
-    rename(horizon = name,
-           abs_error = value) %>% 
-    mutate(horizon = as.integer(horizon))
+# rownames(mae_df) = 1:nrow(mae_df)
+# plot_mae = pivot_longer(mae_df, cols = -c('model', 'crop', 'lag_order', 'n_train')) %>%
+#     rename(horizon = name,
+#            abs_error = value) %>% 
+#     mutate(horizon = as.integer(horizon))
 ```
 
 ```{r fig.width=10, fig.height=14}
-ggplot(plot_mae, aes(x = horizon, y = abs_error, col=model)) +
-  facet_grid(paste0('lag ', lag_order)~crop) + 
-  geom_smooth() + 
-  ylab('MAE')
+# ggplot(plot_mae, aes(x = horizon, y = abs_error, col=model)) +
+#   facet_grid(paste0('lag ', lag_order)~crop) + 
+#   geom_smooth() + 
+#   ylab('MAE')
 ```
+
+## Adding in Agroclimatic CMIP5 indicators:
+
+```{r}
+bedd_and_precip = read_csv("../data/CMIP5_Agro_year.csv", col_names = FALSE)
+colnames(bedd_and_precip) = c('idx', 'value', 'year', 'variable', 'scenario')
+bedd_and_precip = bedd_and_precip %>%
+  pivot_wider(names_from = variable, values_from = value) %>% 
+  dplyr::select(year, BEDD, RR1, scenario)
+head(bedd_and_precip)
+```
+
+```{r}
+tsdisplay(ag_df_exog$BEDD)
+```
+```{r}
+tsdisplay(ag_df_exog$RR1)
+```
+
+```{r}
+hist_agro = bedd_and_precip %>% filter(scenario == 'hist') %>% rename(Year = year)
+ag_df_exog = ag_df_all %>% left_join(hist_agro) %>% 
+  filter(!is.na(BEDD))
+```
+```{r}
+BoxCox.lambda(ag_df_exog[,c('BEDD', 'RR1')])
+```
+
+
+```{r}
+ag_lambda = 0
+
+ag_transformed = ag_df_exog[,2:4] %>%
+    BoxCox(0) %>%
+    cbind(Year = ag_df_exog[,'Year'],
+          BEDD = ag_df_exog[,'BEDD'],
+          RR1 = ag_df_exog[,'RR1'])
+
+ts_yield = ag_transformed[, 1:3]
+ts_exog = ag_transformed[, c('BEDD','RR1')]
+VARselect(ts_yield, exogen = ts_exog, lag.max = p_lag, type = 'both')
+
+# 
+# lead_years = 5
+# window_len = 30
+# p_lag = 5
+# ape_df = data.frame()
+# VARspec = data.frame()
+# for (idx in window_len:(nrow(ag_transformed) - 1)){
+#     test_ts = ag_transformed[(idx + 1):(idx + lead_years), 1:3]
+#     train_slide = ag_transformed[(idx - window_len):idx, 1:3] %>% ts()
+#     exog_slide = ag_transformed[(idx - window_len):idx, c('BEDD','RR1')] %>% ts()
+# 
+#     # VAR Sliding
+#     m2 = VARselect(train_slide, exogen = exog_slide, lag.max = p_lag, type = 'both')
+#     new_VARspec = m2$selection %>% t() %>% data.frame()
+#     VARspec = bind_rows(VARspec, new_VARspec)
+#     # f2 = forecast(m2, h=lead_years)
+#     # year = max(ag_transformed[(idx - window_len):idx, 'Year'])
+#     # 
+#     # ape_corn = abs(f2$forecast$Corn_BUperAcre$mean - test_ts$Corn_BUperAcre) / test_ts$Corn_BUperAcre
+#     # ape_wheat = abs(f2$forecast$Wheat_BUperAcre$mean - test_ts$Wheat_BUperAcre) / test_ts$Wheat_BUperAcre
+#     # ape_soy = abs(f2$forecast$Soy_BUperAcre$mean - test_ts$Soy_BUperAcre) / test_ts$Soy_BUperAcre
+#     # 
+#     # forecasts = data.frame(f2$forecast$Corn_BUperAcre$mean,
+#     #                        f2$forecast$Wheat_BUperAcre$mean,
+#     #                        f2$forecast$Soy_BUperAcre$mean) %>% t()
+#     # 
+#     # colnames(forecasts) = paste('VAR3_t+', 1:5, sep='')
+#     # 
+#     # newlines = data.frame(ape_corn, ape_wheat, ape_soy, row.names = paste('APE_', 1:5, sep='')) %>%
+#     #     t() %>% 
+#     #     cbind(forecasts) %>% 
+#     #     cbind(data.frame(model = 'VAR3',
+#     #                      crop = c('corn', 'wheat', 'soy'),
+#     #                      year = year))
+#     # 
+#     # ape_df = bind_rows(ape_df, newlines)
+# }
+# # rownames(ape_df) = 1:nrow(ape_df)
+# kable(VARspec %>%  mean())
+```
+Great news - let's see if it passes the Portmanteau test. We would love to _accept_ the null hypothesis of no serial correlation amongst residuals (meaning there is some autocorrelation left on the table for a different model to make use of).
+
+```{r}
+VAR_best = VAR(ts_yield, exogen = ts_exog, p = 1, type = "both")
+
+serial.test(VAR_best, type="PT.asymptotic")
+```
+Great success - we accept the null hypothesis of no serial correlation among residuals. Given the unanimous best VAR model having only one lag (already very parsimonious) we will crossvalidate with this moving forward.
 
 ## Comparison with other models
 
 - 5 leads 
-- 5 lags (sliding)
+- 1 lag
+- 60 year sliding window
 - BoxCox lambda of 0 - log transformation, as it's pretty close to 0 anyways and it helps with interpretability
 - mean percent error for each lead to facilitate comparison between different crops
 
 
+### First, straight VAR with no exogenous predictors, with all three yields.
 ```{r}
 ag_lambda = 0
 
@@ -162,7 +257,7 @@ for (idx in window_len:(nrow(ag_transformed) - 1)){
     train_slide = ag_transformed[(idx - window_len):idx, 1:3] %>% ts()
   
     # VAR Sliding
-    m2 = VAR(train_slide, p = p_lag, type = 'both')
+    m2 = VAR(train_slide, p = 1, type = 'both')
     f2 = forecast(m2, h=lead_years)
     year = max(ag_transformed[(idx - window_len):idx, 'Year'])
 
@@ -201,6 +296,7 @@ ggplot(plot_ape, aes(x = horizon, y = abs_error, col=model)) +
   ylab('MAPE')
 ```
 
+# Next, VAR(1) with just Wheat and Corn
 ```{r}
 ag_lambda = 0
 ag_df = ag_df_all[!is.na(ag_df_all$Wheat_BUperAcre),]
@@ -220,7 +316,7 @@ for (idx in window_len:(nrow(ag_transformed) - 1)){
     year = max(ag_transformed[(idx - window_len):idx, 'Year'])
 
     # VAR Sliding
-    m2 = VAR(train_slide, p = p_lag, type = 'both')
+    m2 = VAR(train_slide, p = 1, type = 'both')
     f2 = forecast(m2, h=lead_years)
     
     ape_corn = abs(f2$forecast$Corn_BUperAcre$mean - test_ts$Corn_BUperAcre) / test_ts$Corn_BUperAcre
@@ -256,9 +352,63 @@ ggplot(plot_ape, aes(x = horizon, y = abs_error, col=model)) +
   ylab('MAPE')
 ```
 
+
+### Last, VAR(1) with all three crops AND CMIP5 historical predictors. Due to to the small sample size (59 years) we decrease window length to 30.
+```{r}
+ag_df = ag_df_exog[!is.na(ag_df_exog$RR1),]
+
+ag_transformed = ag_df[,2:4] %>%
+    BoxCox(0) %>%
+    cbind(Year = ag_df[,'Year'],
+          BEDD = ag_df[,'BEDD'],
+          RR1 = ag_df[,'RR1'])
+
+lead_years = 5
+window_len = 30
+p_lag = 5
+ape_df3 = data.frame()
+VARspec = data.frame()
+for (idx in window_len:(nrow(ag_transformed) - 1)){
+
+    test_ts = ag_transformed[(idx + 1):(idx + lead_years), 1:3] 
+    exog_test_ts = ag_transformed[(idx + 1):(idx + lead_years), c('BEDD','RR1')] 
+    train_slide = ag_transformed[(idx - window_len):idx, 1:3] %>% ts()
+    exog_slide = ag_transformed[(idx - window_len):idx, c('BEDD','RR1')] %>% ts()
+
+    # VAR Sliding
+    m2 = VAR(train_slide, exogen = exog_slide, p=1, type = 'both')
+    f2 = forecast(m2, h=lead_years, dumvar = exog_test_ts)
+    year = max(ag_transformed[(idx - window_len):idx, 'Year'])
+
+    ape_corn = abs(f2$forecast$Corn_BUperAcre$mean - test_ts$Corn_BUperAcre) / test_ts$Corn_BUperAcre
+    ape_wheat = abs(f2$forecast$Wheat_BUperAcre$mean - test_ts$Wheat_BUperAcre) / test_ts$Wheat_BUperAcre
+    ape_soy = abs(f2$forecast$Soy_BUperAcre$mean - test_ts$Soy_BUperAcre) / test_ts$Soy_BUperAcre
+
+    forecasts = data.frame(f2$forecast$Corn_BUperAcre$mean,
+                           f2$forecast$Wheat_BUperAcre$mean,
+                           f2$forecast$Soy_BUperAcre$mean) %>% t()
+
+    colnames(forecasts) = paste('VAR3exog_t+', 1:5, sep='')
+
+    newlines = data.frame(ape_corn, ape_wheat, ape_soy, row.names = paste('APE_', 1:5, sep='')) %>%
+        t() %>%
+        cbind(forecasts) %>%
+        cbind(data.frame(model = 'VAR3exog',
+                         crop = c('corn', 'wheat', 'soy'),
+                         year = year))
+
+    ape_df3 = bind_rows(ape_df3, newlines)
+}
+rownames(ape_df3) = 1:nrow(ape_df3)
+kable(ape_df3, digits=2)
+```
+
+
+
 ```{r}
 df_out = ape_df2 %>% dplyr::select(starts_with('VARcw_t+'), year, crop) %>% 
-  full_join(ape_df %>% dplyr::select(starts_with('VAR3_t+'), year, crop)) %>% 
+  full_join(ape_df3 %>% dplyr::select(starts_with('VAR3exog_t+'), year, crop)) %>%
+  full_join(ape_df %>% dplyr::select(starts_with('VAR3_t+'), year, crop)) %>%
   mutate_at(vars(starts_with('VAR')), exp) %>% 
   arrange(crop)
 

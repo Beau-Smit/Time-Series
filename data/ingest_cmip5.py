@@ -62,11 +62,11 @@ def ingest_cmip5(download_dir, out_dir, bin_lens = ['month', 'year']):
                 step = 3 #number of 10 day windows in a month
             elif bin_len == 'year':
                 step = 36 #number of 10 day windows in a year
-            left_bin = westMN.time[np.arange(0, westMN.dims["time"], step)]\
-                .to_numpy()
+            bin_mask = np.arange(0, westMN.dims["time"] + step, step)
+            bin_mask[-1] -= 1
+            left_bin = westMN.time[bin_mask].to_numpy()
 
             if var in sum_vars:
-                bin_len
                 aggWestMN = westMN.groupby_bins("time", left_bin).sum(
                     dim=["time", "lat", "lon"]
                 ) / n_grid_points
