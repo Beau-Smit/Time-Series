@@ -16,6 +16,7 @@ library(dplyr)
 library(ggplot2)
 library(caret)
 library(randomForest)
+library(e1071)
 ```
 
 ```{r}
@@ -55,7 +56,8 @@ predict_stacked_mdl <- function(predictions){
     # train stacking model
     #stacking_mdl <- glm(true_value_t.1 ~ naive_t.1 + holt_t.1 + arima_t.1, data=train)
     # linear model did not perform very well
-    stacking_mdl <- randomForest(true_value_t.1 ~ ., data=train, ntree=1000, importance=TRUE)
+    stacking_mdl <- randomForest(true_value_t.1 ~ ., data=train, ntree=1000, nodesize=18)
+    #stacking_mdl <- svm(true_value_t.1 ~ ., data = train, kernel = "linear", cost = 1)
     
     # predict on following year
     new_row <- c(test_yr, predict(stacking_mdl, test), test$true_value_t.1)
@@ -119,6 +121,34 @@ get_MAPE(wheat_baseline_preds_subset$arima_t.1, wheat_baseline_preds_subset$true
 get_MAPE(soy_baseline_preds_subset$arima_t.1, soy_baseline_preds_subset$true_value_t.1)
 ```
 
+```{r}
+VAR_predictions <- read.csv("../data/VAR_predictions.csv")
+
+VAR_corn_preds <- VAR_predictions %>% 
+  filter(crop == "corn") %>%
+  right_join(., corn_baseline_preds %>% select(year, starts_with("true_value")), by="year")
+VAR_wheat_preds <- VAR_predictions %>% 
+  filter(crop == "wheat") %>%
+  right_join(., wheat_baseline_preds %>% select(year, starts_with("true_value")), by="year")
+VAR_soy_preds <- VAR_predictions %>% 
+  filter(crop == "soy") %>%
+  right_join(., soy_baseline_preds %>% select(year, starts_with("true_value")), by="year")
+```
+
+```{r}
+print("VARcw model")
+get_MAPE(VAR_corn_preds$VARcw_t.1, VAR_corn_preds$true_value_t.1)
+get_MAPE(VAR_wheat_preds$VARcw_t.1, VAR_wheat_preds$true_value_t.1)
+get_MAPE(VAR_soy_preds$VARcw_t.1, VAR_soy_preds$true_value_t.1)
+```
+
+```{r}
+print("VAR3 model")
+get_MAPE(VAR_corn_preds$VAR3_t.1, VAR_corn_preds$true_value_t.1)
+get_MAPE(VAR_wheat_preds$VAR3_t.1, VAR_wheat_preds$true_value_t.1)
+get_MAPE(VAR_soy_preds$VAR3_t.1, VAR_soy_preds$true_value_t.1)
+```
+
 ## Plot forecasts
 
 ```{r}
@@ -128,18 +158,37 @@ plot_predictions <- function(regular_preds, stacked_preds, commodity){
   
   ggplot() + 
     geom_line(data=regular_preds, aes(x=year+1, y=true_value_t.1)) + 
-    geom_line(data=stacked_preds, aes(x=year+1, y=forecast, color='stacked')) + 
+    geom_line(data=stacked_preds, aes(x=year+1, y=forecast, color='stacked baseline')) + 
     geom_line(data=baseline_plot_df, aes(x=year+1, y=naive_t.1, color='naive')) + 
     geom_line(data=baseline_plot_df, aes(x=year+1, y=holt_t.1, color='Holt')) + 
     geom_line(data=baseline_plot_df, aes(x=year+1, y=arima_t.1, color='ARIMA')) + 
     ggtitle(commodity) + 
-    xlab("Year")
+    xlab("Year") + 
+    ylab("Bushels per acre")
   
 }
 ```
 
 ```{r}
-plot_predictions(corn_baseline_preds, corn_stacked_preds, "corn")
-plot_predictions(wheat_baseline_preds, wheat_stacked_preds, "wheat")
+plot_predictions(corn_baseline_preds, corn_stacked_preds, "corn") + 
+  geom_line(data=VAR_corn_preds %>% filter(year >= 2016), aes(x=year+1, y=VARcw_t.1, col="VAR"))
+
+plot_predictions(wheat_baseline_preds, wheat_stacked_preds, "wheat") + 
+  geom_line(data=VAR_wheat_preds %>% filter(year >= 2016), aes(x=year+1, y=VARcw_t.1, col="VAR"))
+
 plot_predictions(soy_baseline_preds, soy_stacked_preds, "soy")
 ```
+
+```{r}
+current_year <- 2020
+a <- corn_baseline_preds %>% filter(year == current_year) %>% select(starts_with(("naive"))) %>% t() %>% as.data.frame() %>% mutate(year = seq(current_year, current_year+4, 1))
+b <- corn_baseline_preds %>% filter(year == current_year) %>% select(starts_with(("true"))) %>% t() %>% as.data.frame() %>% mutate(year = seq(current_year, current_year+4, 1))
+c <- VAR_corn_preds %>% filter(year == current_year) %>% select(starts_with(("VARcw"))) %>% t() %>% as.data.frame() %>% mutate(year = seq(current_year, current_year+4, 1))
+
+ggplot() + 
+  geom_line(data = corn_baseline_preds %>% filter(year < current_year), aes(x=year+1, y=true_value_t.1)) + 
+  geom_line(data = a, aes(x=year+1, y=V1, col="naive")) + 
+  geom_line(data = b, aes(x=year+1, y=V1, col="observed")) + 
+  geom_line(data = c, aes(x=year+1, y=V1, col="VAR"))
+```
+
