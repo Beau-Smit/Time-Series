@@ -25,10 +25,16 @@ library(gbm)
 library(caret)
 ```
 
+```{r}
+setwd("~/Documents/GitHub/Time-Series")
+library(readr)
+ag_df <- read_csv("data/MN_Ag_YieldsAndInputs.csv")
+agro_features <- read_csv("data/CMIP5_Agro_year.csv",col_names = FALSE)
+```
+
+
 
 ```{r reading_csv}
-ag_df = read.csv('MN_Ag_YieldsAndInputs.csv')
-
 # only keep years where all 3 commodities have values
 ag_df = ag_df[!is.na(ag_df$Soy_BUperAcre),] %>% arrange(Year)
 
@@ -53,7 +59,15 @@ soy_test <- window(soy_ts, start=first_test_yr)
 ```{r}
 autoplot(corn_ts,main="Corn Production 1934-2016")
 autoplot(diff(corn_ts),main="Differenced Corn Production 1934-2016")
+
+autoplot(wheat_ts,main="Wheat Production 1934-2016")
+autoplot(diff(wheat_ts),main="Differenced Wheat Production 1934-2016")
+
+autoplot(soy_ts,main="Soy Production 1934-2016")
+autoplot(diff(soy_ts),main="Differenced Soy Production 1934-2016")
+
 ```
+
 
 
 ```{r}
@@ -61,12 +75,26 @@ lag_order <- 6 # the desired number of lags (6 years)
 horizon <- 5 # the forecast horizon (5 years)
 
 corn_embed <- embed(corn_ts, lag_order+1)
+soy_embed <- embed(soy_ts, lag_order+1)
+wheat_embed <- embed(wheat_ts, lag_order+1)
 
-y_train <- corn_embed[, 1] # the target
-X_train <- corn_embed[, -1] # everything but the target
+y_train_corn <- head(corn_embed[, 1],77) # the target
+X_train_corn <- head(corn_embed[, -1],77) # everything but the target
 
-y_test <- window(corn_ts, start = c(2016), end = c(2021))
-X_test <- tail(corn_embed[,-1])
+y_train_wheat <- head(wheat_embed[, 1],77) # the target
+X_train_wheat <- head(wheat_embed[, -1],77) # everything but the target
+
+y_train_soy <- head(soy_embed[, 1],77) # the target
+X_train_soy <- head(soy_embed[, -1],77) # everything but the target
+
+y_test_corn <- window(corn_ts, start = c(2016), end = c(2020))
+X_test_corn <- tail(corn_embed[,-1])
+
+y_test_soy <- window(soy_ts, start = c(2016), end = c(2020))
+X_test_soy <- tail(soy_embed[,-1])
+
+y_test_wheat <- window(wheat_ts, start = c(2016), end = c(2020))
+X_test_wheat <- tail(wheat_embed[,-1])
 ```
 
 ```{r ts_crossval}
@@ -82,82 +110,150 @@ seeds[[528]] <- sample.int(1000, 1)
 myTimeControl <- trainControl(method = "timeslice",
                               initialWindow = 60,
                               horizon = 5,
-                              fixedWindow = FALSE,
+                              fixedWindow = TRUE,
                               allowParallel = TRUE,
                               seeds = seeds)
 
-colnames(X_train) <- c('Lag1','Lag2','Lag3','Lag4','Lag5','Lag6')
-colnames(X_test) <- c('Lag1','Lag2','Lag3','Lag4','Lag5','Lag6')
+colnames(X_train_corn) <- c('Lag1','Lag2','Lag3','Lag4','Lag5','Lag6')
+colnames(X_test_corn) <- c('Lag1','Lag2','Lag3','Lag4','Lag5','Lag6')
+colnames(X_train_soy) <- c('Lag1','Lag2','Lag3','Lag4','Lag5','Lag6')
+colnames(X_test_soy) <- c('Lag1','Lag2','Lag3','Lag4','Lag5','Lag6')
+colnames(X_train_wheat) <- c('Lag1','Lag2','Lag3','Lag4','Lag5','Lag6')
+colnames(X_test_wheat) <- c('Lag1','Lag2','Lag3','Lag4','Lag5','Lag6')
 
 tuneLength.num <- 5
 
-rf.mod <- train(x=X_train,
-                y=y_train,
+rf.mod.corn <- train(x=X_train_corn,
+                y=y_train_corn,
                 method = "rf",
                 ntree=5,
                 trControl = myTimeControl,
                 tuneLength=tuneLength.num,
-                metric='RMSE')
+                metric='MAE')
 
-gbm.mod <- train(x=X_train,
-                y=y_train,
+gbm.mod.corn <- train(x=X_train_corn,
+                y=y_train_corn,
                 method = "gbm",
                 trControl = myTimeControl,
                 tuneLength=tuneLength.num,
-                metric='RMSE')
-```
+                metric='MAE')
 
-```{r}
-resamps <- resamples(list(gbm=xg.mod,
-                          rf=rf.mod))
+rf.mod.soy <- train(x=X_train_soy,
+                y=y_train_soy,
+                method = "rf",
+                ntree=5,
+                trControl = myTimeControl,
+                tuneLength=tuneLength.num,
+                metric='MAE')
 
-ss <- summary(resamps)
+gbm.mod.soy <- train(x=X_train_soy,
+                y=y_train_soy,
+                method = "gbm",
+                trControl = myTimeControl,
+                tuneLength=tuneLength.num,
+                metric='MAE')
 
-knitr::kable(ss[[3]]$RMSE)
+rf.mod.wheat <- train(x=X_train_wheat,
+                y=y_train_wheat,
+                method = "rf",
+                ntree=5,
+                trControl = myTimeControl,
+                tuneLength=tuneLength.num,
+                metric='MAE')
 
-trellis.par.set(caretTheme())
-dotplot(resamps, metric = "RMSE")
-
+gbm.mod.wheat <- train(x=X_train_wheat,
+                y=y_train_wheat,
+                method = "gbm",
+                trControl = myTimeControl,
+                tuneLength=tuneLength.num,
+                metric='MAE')
 ```
 
 ```{r testing}
-forecasts_rf <- predict(rf.mod, X_test)
-forecasts_gbm <- predict(gbm.mod, X_test)
+forecasts_rf_corn <- predict(rf.mod.corn, X_test_corn)
+forecasts_gbm_corn <- predict(gbm.mod.corn, X_test_corn)
+
+forecasts_rf_soy <- predict(rf.mod.soy, X_test_soy)
+forecasts_gbm_soy <- predict(gbm.mod.soy, X_test_soy)
+
+forecasts_rf_wheat <- predict(rf.mod.wheat, X_test_wheat)
+forecasts_gbm_wheat <- predict(gbm.mod.wheat, X_test_wheat)
 
 ```
 
 ```{r}
+#TODO: Update the graphs for the remaining Soy and Wheat.
 
 # convert to ts format
-y_pred_rf <- ts(
-  forecasts_rf,
+y_pred_rf_corn <- ts(
+  forecasts_rf_corn,
   start = c(2016),
   frequency = 1
 )
 
-y_pred_gbm <- ts(
-  forecasts_gbm,
+y_pred_gbm_corn <- ts(
+  forecasts_gbm_corn,
   start = c(2016),
   frequency = 1
 )
 
+# convert to ts format
+y_pred_rf_soy <- ts(
+  forecasts_rf_soy,
+  start = c(2016),
+  frequency = 1
+)
 
-benchmark <- forecast(naive(corn_train), h = horizon)
+y_pred_gbm_soy <- ts(
+  forecasts_gbm_soy,
+  start = c(2016),
+  frequency = 1
+)
+# convert to ts format
+y_pred_rf_wheat <- ts(
+  forecasts_rf_wheat,
+  start = c(2016),
+  frequency = 1
+)
+
+y_pred_gbm_wheat <- ts(
+  forecasts_gbm_wheat,
+  start = c(2016),
+  frequency = 1
+)
+
+benchmark_corn <- forecast(naive(corn_train), h = horizon)
+benchmark_soy <- forecast(naive(soy_train), h = horizon)
+benchmark_wheat <- forecast(naive(wheat_train), h = horizon)
 
 autoplot(corn_train) +
-  autolayer(y_pred,series="Random Forest Prediction")+
-  autolayer(y_test,series="Actual Values") +
-  autolayer(benchmark$mean,series="Naive Forecast")+
-  autolayer(y_pred_xgb,series="Gradient Boost")
+  autolayer(y_pred_rf_corn,series="Random Forest Prediction")+
+  autolayer(y_test_corn,series="Actual Values") +
+  autolayer(benchmark_corn$mean,series="Naive Forecast")+
+  autolayer(y_pred_gbm_corn,series="Gradient Boost")
 
-accuracy(y_pred, y_test)
+autoplot(soy_train) +
+  autolayer(y_pred_rf_soy,series="Random Forest Prediction")+
+  autolayer(y_test_soy,series="Actual Values") +
+  autolayer(benchmark_soy$mean,series="Naive Forecast")+
+  autolayer(y_pred_gbm_soy,series="Gradient Boost")
+
+autoplot(wheat_train) +
+  autolayer(y_pred_rf_wheat,series="Random Forest Prediction")+
+  autolayer(y_test_wheat,series="Actual Values") +
+  autolayer(benchmark_wheat$mean,series="Naive Forecast")+
+  autolayer(y_pred_gbm_wheat,series="Gradient Boost")
 ```
 
 
 ```{r}
+accuracy(y_pred_rf_corn, y_test_corn)
+accuracy(y_pred_gbm_corn, y_test_corn)
 
-accuracy(y_pred,y_test)
-accuracy(benchmark, y_test)
+accuracy(y_pred_rf_wheat, y_test_wheat)
+accuracy(y_pred_gbm_wheat, y_test_wheat)
 
+accuracy(y_pred_rf_soy, y_test_soy)
+accuracy(y_pred_gbm_soy, y_test_soy)
 ```
 
