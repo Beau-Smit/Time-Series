@@ -26,58 +26,13 @@ ag_df = ag_df[!is.na(ag_df$Soy_BUperAcre),] %>% arrange(Year)
 corn_ts <- ts(ag_df$Corn_BUperAcre, start = min(ag_df$Year), frequency = 1)
 wheat_ts <- ts(ag_df$Wheat_BUperAcre, start = min(ag_df$Year), frequency = 1)
 soy_ts <- ts(ag_df$Soy_BUperAcre, start = min(ag_df$Year), frequency = 1)
-
-# split train and test sets
-first_test_yr <- 2017
-
-corn_train <- window(corn_ts, end=first_test_yr-1)
-corn_test <- window(corn_ts, start=first_test_yr)
-
-wheat_train <- window(wheat_ts, end=first_test_yr-1)
-wheat_test <- window(wheat_ts, start=first_test_yr)
-
-soy_train <- window(soy_ts, end=first_test_yr-1)
-soy_test <- window(soy_ts, start=first_test_yr)
 ```
-
-```{r}
-h <- 5
-
-# naive method
-plot(naive(corn_train, h=h), ylab="corn")
-plot(naive(wheat_train, h=h), ylab="wheat")
-plot(naive(soy_train, h=h), ylab="soy")
-```
-
-```{r}
-plot(rwf(corn_train, h=h, drift=T))
-plot(rwf(wheat_train, h=h, drift=T))
-plot(rwf(soy_train, h=h, drift=T))
-```
-
-```{r}
-# holt method
-plot(holt(corn_train, h=h, damped=T))
-plot(holt(wheat_train, h=h, damped=T, exponential=T))
-plot(holt(soy_train, h=h, damped=T))
-```
-
-```{r}
-# ARIMA
-lam <- BoxCox.lambda(corn_train)
-# auto ARIMA, auto BoxCox
-arima_mdl <- auto.arima(corn_train, lambda=lam)
-arima_predictions <- (forecast(arima_mdl, h=h))$mean
-plot(forecast(arima_mdl, h=h))
-```
-
 
 ```{r}
 # gather all predictions
 baseline_predictions <- function(train, h){
   
   naive_preds <- naive(train, h=h)$mean
-  drift_preds <- rwf(train, h=h, drift=T)$mean
   holt_preds <- holt(train, h=h, damped=T)$mean
   
   lam <- BoxCox.lambda(train)
@@ -85,8 +40,8 @@ baseline_predictions <- function(train, h){
   arima_mdl <- auto.arima(train, lambda=lam)
   arima_preds <- (forecast(arima_mdl, h=h))$mean
   
-  preds_df <- cbind(naive_preds, drift_preds, holt_preds, arima_preds)
-  return(preds_df)
+  preds_row <- c(naive_preds, holt_preds, arima_preds)
+  return(preds_row)
 }
 ```
 
@@ -95,46 +50,33 @@ corn_preds <- c()
 wheat_preds <- c()
 soy_preds <- c()
 
-for (first_test_yr in 1980:2021){
+for (first_test_yr in 1995:2020){
   # make predictions on a one year horizon
-  h=1
+  h=5
   
   # split train and test sets
-  corn_train <- window(corn_ts, end=first_test_yr-1)
-  corn_test <- window(corn_ts, start=first_test_yr, end=first_test_yr)
-  corn_row <- c(first_test_yr, baseline_predictions(corn_train, h), corn_test)
+  corn_train <- window(corn_ts, start=first_test_yr-60, end=first_test_yr)
+  corn_test <- window(corn_ts, start=first_test_yr+1)
+  # get all baseline model predictions and add in first test year and true value
+  corn_row <- c(first_test_yr, "corn", baseline_predictions(corn_train, h), corn_test[0:5])
   corn_preds <- rbind(corn_preds, corn_row)
   
-  wheat_train <- window(wheat_ts, end=first_test_yr-1)
-  wheat_test <- window(wheat_ts, start=first_test_yr, end=first_test_yr)
-  wheat_row <- c(first_test_yr, baseline_predictions(wheat_train, h), wheat_test)
+  wheat_train <- window(wheat_ts, start=first_test_yr-60, end=first_test_yr)
+  wheat_test <- window(wheat_ts, start=first_test_yr+1)
+  wheat_row <- c(first_test_yr, "wheat", baseline_predictions(wheat_train, h), wheat_test[0:5])
   wheat_preds <- rbind(wheat_preds, wheat_row)
 
-  soy_train <- window(soy_ts, end=first_test_yr-1)
-  soy_test <- window(soy_ts, start=first_test_yr, end=first_test_yr)
-  soy_row <- c(first_test_yr, baseline_predictions(soy_train, h), soy_test)
+  soy_train <- window(soy_ts, start=first_test_yr-60, end=first_test_yr)
+  soy_test <- window(soy_ts, start=first_test_yr+1)
+  soy_row <- c(first_test_yr, "soy", baseline_predictions(soy_train, h), soy_test[0:5])
   soy_preds <- rbind(soy_preds, soy_row)
   
 }
 
-col_names <- c('year','naive','drift','holt','arima','true_value')
-colnames(corn_preds) <- col_names
-colnames(wheat_preds) <- col_names
-colnames(soy_preds) <- col_names
+prediction_df <- rbind(corn_preds, wheat_preds, soy_preds) %>% as.data.frame()
+colnames(prediction_df) <- c("year", "crop", "naive_t+1", "naive_t+2", "naive_t+3", "naive_t+4", "naive_t+5", "holt_t+1", "holt_t+2", "holt_t+3", "holt_t+4", "holt_t+5", "arima_t+1", "arima_t+2", "arima_t+3", "arima_t+4", "arima_t+5", "true_value_t+1", "true_value_t+2", "true_value_t+3", "true_value_t+4", "true_value_t+5")
 ```
 
 ```{r}
-write.csv(corn_preds,"../data/corn_baseline_predictions.csv", row.names = FALSE)
-write.csv(wheat_preds,"../data/wheat_baseline_predictions.csv", row.names = FALSE)
-write.csv(soy_preds,"../data/soy_baseline_predictions.csv", row.names = FALSE)
-```
-
-
-```{r}
-# put into data frame
-preds <- cbind(naive_predictions, drift_predictions, holt_predictions, arima_predictions) %>% 
-  as.tibble() %>%
-  mutate(Year = seq(from=first_test_yr, to=max(ag_df$Year)))
-
-write.csv(preds, "commodities_predictions.csv", row.names = FALSE)
+write.csv(prediction_df, "../data/baseline_predictions.csv", row.names = FALSE)
 ```
