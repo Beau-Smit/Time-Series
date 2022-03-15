@@ -1,0 +1,488 @@
+---
+title: "TS Final Project_Reg Model(with ARIMA errors)"
+author: "Louise"
+date: "3/9/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library("knitr")
+library("rmarkdown")
+
+library(tseries)
+library(ggplot2)
+library(forecast)
+library(fpp)
+library(TSA)
+library(TSstudio)
+#install.packages("tidyverse")
+library(tidyverse)
+
+library(zoo)
+library(dplyr)
+
+library(vars)
+```
+
+```{r}
+library(readr)
+urlfile="https://raw.githubusercontent.com/Beau-Smit/Time-Series/main/data/MN_Ag_YieldsAndInputs.csv"
+dat <- read.csv(url(urlfile))
+
+urlfile2="https://raw.githubusercontent.com/Beau-Smit/Time-Series/main/data/CMIP5_Agro_year.csv"
+agroPredictors <- read.csv(url(urlfile2), header = FALSE)
+```
+
+```{r}
+#head(dat)
+#tail(dat)
+nrow(dat)
+
+head(agroPredictors)
+tail(agroPredictors)
+nrow(agroPredictors)
+unique(agroPredictors[,5])
+```
+
+
+```{r}
+# drop V1
+agroPredictors <- agroPredictors[-1]
+
+# name col
+colnames(agroPredictors) <- c("value", "year", "predictor", "scenario")
+
+# subset by year range
+predictors <- subset(agroPredictors, year>=1934 & year<=2021)
+head(predictors)
+
+#pivot_wider
+predictors <- predictors %>% 
+  pivot_wider(names_from = predictor, values_from = value) %>% 
+  arrange(year)
+nrow(predictors)
+predictors
+
+#missing check for each predictor
+colSums(is.na(predictors))
+
+#choose
+
+
+#cbind
+
+```
+
+
+```{r}
+# missing values
+ag_df <- dat[!is.na(dat$Soy_BUperAcre),] %>% arrange(Year)
+#?arrange
+class(ag_df)
+head(ag_df)
+```
+
+- 3 useful variable: Corn_BUperAcre, Wheat_BUperAcre, Soy_BUperAcre, yearly data from 1934 to 2021
+- each crop have 4 fertilizers, but too many nulls and gaps in those features ➔ will be ignored 
+
+```{r}
+# plot for relationship between variables
+plot(ag_df$Corn_BUperAcre, ag_df$Wheat_BUperAcre, main = "Corn vs Wheat")
+plot(ag_df$Corn_BUperAcre, ag_df$Soy_BUperAcre, main = "Corn vs Soy")
+plot(ag_df$Soy_BUperAcre, ag_df$Wheat_BUperAcre, main = "Soy vs Wheat")
+```
+
+linear relationship
+
+```{r}
+# ts object
+corn <- ts(ag_df$Corn_BUperAcre, frequency = 1, start = 1934)
+wheat <- ts(ag_df$Wheat_BUperAcre, frequency = 1, start = 1934)
+soy <- ts(ag_df$Soy_BUperAcre, frequency = 1, start = 1934)
+```
+
+
+```{r}
+# corr
+df <- cbind(corn, soy, wheat)
+cor(df)
+```
+
+
+```{r}
+# plot ts
+autoplot(corn, main = "Crops Yield", xlab = "Year", ylab = "BU Per Acre", series = "Corn") +
+  autolayer(wheat, series = "Wheat") +
+  autolayer(soy, series = "Soy")
+```
+
+- boxcox needed
+- potential seasonality or just trend? need to check
+
+```{r}
+# lambda calculation
+BoxCox.lambda(corn)
+BoxCox.lambda(soy)
+BoxCox.lambda(wheat)
+```
+
+```{r}
+# test with different lambda and plot ts to determine lambda for all three variables
+corn_bc <- BoxCox(corn, lambda = 0.08)
+soy_bc <- BoxCox(soy, lambda = 0.08)
+wheat_bc <- BoxCox(wheat, lambda = 0.08)
+
+autoplot(corn_bc, main = "Crops Yield after Boxcox", xlab = "Year", series = "Corn_bc") +
+  autolayer(wheat_bc, series = "Wheat_bc") +
+  autolayer(soy_bc, series = "Soy_bc")
+```
+
+can proceed with lambda = 0.5 (square root trans plus linear trans) 
+or lambda = 0 (log trans) for easier interpretation
+
+```{r}
+# create variables for later use
+corn_sqrt <- BoxCox(corn, lambda = 0.5)
+soy_sqrt <- BoxCox(soy, lambda = 0.5)
+wheat_sqrt <- BoxCox(wheat, lambda = 0.5)
+
+corn_log <- BoxCox(corn, lambda = 0)
+soy_log <- BoxCox(soy, lambda = 0)
+wheat_log <- BoxCox(wheat, lambda = 0)
+
+df_sqrt <- cbind(corn_sqrt, soy_sqrt, wheat_sqrt)
+df_log <- cbind(corn_log, soy_log, wheat_log)
+
+cor(df_sqrt) # check corr after boxcox
+cor(df_log)
+```
+
+
+```{r}
+# differencing and stationary check: determine d and D
+
+diff(df_sqrt) %>% autoplot(main = "Crops Yield after sqrt+diff")
+diff(df_log) %>% autoplot(maing = "Crops Yield after log+diff")
+
+adf.test(diff(df_log)[,1])
+adf.test(diff(df_sqrt)[,1])
+```
+
+both sqrt+1st differencing and log+1st differencing can bring to stationary ts, but log trans+1st differencing had relative constant variance.
+- proceed with log + d=1 (no seasonal differencing)
+
+```{r}
+# acf/pacf to determine potential p,q,P,Q
+# can use eacf for a mix of AR and MA
+head(df_log)
+diff(diff(df_log)[,3]) %>% acf()
+diff(diff(df_log)[,3]) %>% pacf()
+
+# nsdiffs(diff(df_log)[,1]): Non seasonal data -> P,Q = 0?
+```
+
+- no obvious seasonal component from ACF/PACF and nsdiffs() result
+- corn can try (0,1,1) or (0,1,2)
+- wheat can try (0,1,1)
+- soy can try (0,1,1)
+
+```{r}
+# train/test split
+split <- ts_split(df, sample.out = 8)
+
+train <- split$train
+test <- split$test
+
+head(train)
+```
+
+#### Regression
+```{r}
+# regression
+tslm_corn_log <- tslm(formula = corn ~ soy + wheat,
+                      data = train,lambda = 0, biasadj = TRUE)
+tslm_wheat_log <- tslm(formula = wheat ~ corn + soy,
+                       data = train,lambda = 0, biasadj = TRUE)
+tslm_soy_log <- tslm(formula = soy ~ corn + wheat,
+                     data = train, lambda = 0, biasadj = TRUE)
+```
+
+
+```{r}
+# plot regression fitted values & actual values in training set
+autoplot(train[,1], series = "corn") + 
+  autolayer(tslm_corn_log$fitted.values, series = "fitted corn")
+
+autoplot(train[,2], series = "soy") +
+  autolayer(tslm_soy_log$fitted.values, series = "fitted soy")
+
+autoplot(train[,3], series = "wheat") +
+  autolayer(tslm_wheat_log$fitted.values, series = "fitted wheat")
+
+```
+
+
+```{r}
+#summary(tslm_corn_log)
+```
+
+
+```{r}
+checkresiduals(tslm_corn_log)
+checkresiduals(tslm_wheat_log)
+checkresiduals(tslm_soy_log)
+```
+
+Breusch-Godfrey test for all three regression models had a low p-value, indicating residuals were autocorrelated ➔use regression with ARIMA error model is appropriate
+
+#### Reg model with ARIMA errors
+```{r}
+# model estimation
+regARIMA_corn_log <- auto.arima(train[,1], xreg = train[,2:3], d = 1, 
+                                 lambda = 0, biasadj = TRUE, 
+                                trace = TRUE, ic = "aicc")
+  
+regARIMA_wheat_log <- auto.arima(train[,3], xreg = train[,1:2], d = 1,
+                                  lambda = 0, biasadj = TRUE, 
+                                 trace = TRUE, ic = "aicc")
+  
+regARIMA_soy_log <- auto.arima(train[,2], xreg = train[,c(1,3)], d = 1,
+                                lambda = 0, biasadj = TRUE, 
+                               trace = TRUE, ic = "aicc")
+```
+
+
+```{r}
+summary(regARIMA_corn_log)
+summary(regARIMA_soy_log)
+summary(regARIMA_wheat_log)
+```
+
+
+```{r}
+# plot fitted values based on regression with ARIMA errors model vs actual values in training set
+autoplot(train[,1], series = "corn") + 
+  autolayer(regARIMA_corn_log$fitted, series = "fitted corn")
+
+autoplot(train[,2], series = "soy") +
+  autolayer(regARIMA_soy_log$fitted, series = "fitted soy")
+
+autoplot(train[,3], series = "wheat") +
+  autolayer(regARIMA_wheat_log$fitted, series = "fitted wheat")
+```
+
+
+```{r}
+# residauls(), checkresiduals(), zero mean, (const variance)
+# autocorr test
+# normality test
+
+checkresiduals(regARIMA_corn_log$residuals)
+Box.test(regARIMA_corn_log$residuals, type =  "Ljung-Box")
+shapiro.test(regARIMA_corn_log$residuals)
+
+checkresiduals(regARIMA_soy_log$residuals)
+Box.test(regARIMA_soy_log$residuals, type =  "Ljung-Box")
+shapiro.test(regARIMA_soy_log$residuals)
+
+checkresiduals(regARIMA_wheat_log$residuals)
+Box.test(regARIMA_wheat_log$residuals, type =  "Ljung-Box")
+shapiro.test(regARIMA_wheat_log$residuals)
+```
+
+Ljung-Box test had large p-value(> 0.05) for all three models, showing these model had captured patterns in the series so that there were no autocorrelation in the residuals
+
+Shapiro-Wilk test had large p-value(>0.05) for all three models as well, indicating the residuals are normally distributed
+
+```{r}
+# forecast
+head(test)
+
+forecast_corn <- forecast(regARIMA_corn_log, h = 8, level = 95, xreg = test[,2:3])
+forecast_soy <- forecast(regARIMA_soy_log, h = 8, level = 95, xreg = test[,c(1,3)])
+forecast_wheat <- forecast(regARIMA_wheat_log, h = 8, level = 95, xreg = test[,1:2])
+```
+
+
+```{r}
+# forecast values from the model vs actual values test setting 
+autoplot(train[,1], main = "Corn Yield Forecast", xlab = "BU Per Acre", ylab = "Year") + autolayer(test[,1], series = "corn") + 
+  autolayer(forecast_corn$mean, series = "forecasted corn")
+
+autoplot(train[,2], main = "Soy Yield Forecast", xlab = "BU Per Acre", ylab = "Year") + autolayer(test[,2], series = "soy") +
+  autolayer(forecast_soy$mean, series = "forecasted soy")
+
+autoplot(train[,3], main = "Wheat Yield Forecast", xlab = "BU Per Acre", ylab = "Year") + autolayer(test[,3], series = "wheat") + autolayer(forecast_wheat$mean, series = "forecasted wheat")
+```
+
+```{r}
+# model evaluation (testing set)
+accuracy(forecast_corn, test[,1])
+accuracy(forecast_soy, test[,2])
+accuracy(forecast_wheat, test[,3])
+```
+
+```{r}
+# test set accuracy computed with formula, ran and compare with above to make sure it's correct
+
+## rmse
+###corn
+sqrt(mean((forecast_corn$mean - test[,1])^2))
+###soy
+###wheat
+
+## mae
+###corn
+mean(abs(forecast_corn$mean - test[,1]))
+###soy
+###wheat
+
+## mape
+###corn
+mean(abs((forecast_corn$mean - test[,1])*100/test[,1]))
+###soy
+###wheat
+```
+
+
+##### Cross Validation
+```{r}
+lead_years = 5 # fixed forecast length: 5 observations
+
+ape_df = data.frame() #MAPE no Mean
+
+for (idx in 60:(nrow(df) - 5)){ #60 is the fixed training window for sliding, and 5 is the fixed forecast horizon
+  
+  #iteration number
+  it_number = idx - 59 #making 24 iteration total 
+  
+  test_cv = df[(idx + 1):(idx + lead_years), 1:3] #testing set
+  
+  #using sliding window
+  train_slide = df[(idx - 59):idx, 1:3] #training set of sliding window
+  
+  # Reg with ARIMA errors
+  modelCornSlide = auto.arima(train_slide[,1], xreg = train_slide[,2:3], d=1,
+                               lambda = 0, biasadj = TRUE, ic = "aicc")
+  modelWheatSlide = auto.arima(train_slide[,3], xreg = train_slide[,1:2], d=1,
+                                lambda = 0, biasadj = TRUE, ic = "aicc")
+  modelSoySlide = auto.arima(train_slide[,2], xreg = train_slide[,c(1,3)], 
+                              d=1, lambda = 0, biasadj = TRUE, ic = "aicc")
+  
+  forecastCornSlide = forecast(modelCornSlide, h = lead_years, level = 95, 
+                               xreg = test_cv[,2:3])
+  forecastWheatSlide = forecast(modelWheatSlide, h = lead_years, level = 95, 
+                               xreg = test_cv[,1:2])
+  forecastSoySlide = forecast(modelSoySlide, h = lead_years, level = 95, 
+                               xreg = test_cv[,c(1,3)])
+  
+  ape_corn = abs((forecastCornSlide$mean - test_cv[,1])*100/test_cv[,1])
+  ape_wheat = abs((forecastWheatSlide$mean - test_cv[,3])*100/test_cv[,3])
+  ape_soy = abs((forecastSoySlide$mean - test_cv[,2])*100/test_cv[,2])
+  
+  newlinesAPE = data.frame(ape_corn, ape_wheat, ape_soy) %>%
+    t() %>%
+    cbind(data.frame(
+      model = c("modelCornSlide", "modelWheatSlide", "modelSoySlide"), 
+      crop = c("Corn","Wheat","Soy"),
+      n_iteration = it_number,
+      Yt = 1993 + (it_number-1)
+      ))  
+  
+  newlinesPred = data.frame(forecastCornSlide$mean, forecastWheatSlide$mean, forecastSoySlide$mean) %>% t() %>% data.frame()
+  names(newlinesPred) = c("Y(t+1)", "Y(t+2)", "Y(t+3)", "Y(t+4)", "Y(t+5)")
+  
+  newlines = bind_cols(newlinesAPE, newlinesPred)
+
+  ape_df = bind_rows(ape_df, newlines) 
+}
+```
+
+
+```{r}
+# DONT RUN THIS CHUNK!!
+# just a coding test: one iteration only
+
+lead_years = 5 # fixed forecast length: 5 observations
+
+ape_df = data.frame()
+
+
+  idx = 60
+  
+  #iteration number
+  it_number = 1 
+  
+  test_cv = df[(idx + 1):(idx + lead_years), 1:3] #testing set
+  
+  #using sliding window
+  train_slide = df[(idx - 59):idx, 1:3] #training set for sliding method
+  
+  # Reg with ARIMA errors
+  modelCornSlide = auto.arima(train_slide[,1], xreg = train_slide[,2:3], d=1,
+                               lambda = 0, biasadj = TRUE, ic = "aicc")
+  modelWheatSlide = auto.arima(train_slide[,3], xreg = train_slide[,1:2], d=1,
+                                lambda = 0, biasadj = TRUE, ic = "aicc")
+  modelSoySlide = auto.arima(train_slide[,2], xreg = train_slide[,c(1,3)], 
+                              d=1, lambda = 0, biasadj = TRUE, ic = "aicc")
+  
+  forecastCornSlide = forecast(modelCornSlide, h = lead_years, level = 95, 
+                               xreg = test_cv[,2:3])
+  forecastWheatSlide = forecast(modelWheatSlide, h = lead_years, level = 95, 
+                               xreg = test_cv[,1:2])
+  forecastSoySlide = forecast(modelSoySlide, h = lead_years, level = 95, 
+                               xreg = test_cv[,c(1,3)])
+  
+  ape_corn = abs((forecastCornSlide$mean - test_cv[,1])*100/test_cv[,1])
+  ape_wheat = abs((forecastWheatSlide$mean - test_cv[,3])*100/test_cv[,3])
+  ape_soy = abs((forecastSoySlide$mean - test_cv[,2])*100/test_cv[,2])
+  
+  newlinesAPE = data.frame(ape_corn, ape_wheat, ape_soy) %>%
+    t() %>%
+    cbind(data.frame(
+      model = c("modelCornSlide", "modelWheatSlide", "modelSoySlide"), 
+      crop = c("Corn","Wheat","Soy"),
+      n_iteration = it_number,
+      Yt = 1993
+      ))  
+  
+  newlinesPred = data.frame(forecastCornSlide$mean, forecastWheatSlide$mean, forecastSoySlide$mean) %>% t() %>% data.frame()
+  names(newlinesPred) = c("Y(t+1)", "Y(t+2)", "Y(t+3)", "Y(t+4)", "Y(t+5)")
+  
+  newlines = bind_cols(newlinesAPE, newlinesPred)
+
+  ape_df = bind_rows(ape_df, newlines)
+  
+```
+
+
+```{r}
+rownames(ape_df) = 1:nrow(ape_df)
+names(ape_df)[1:5] = c("ape1", "ape2", "ape3", "ape4", "ape5")
+ape_df
+```
+
+
+```{r}
+#split ape_df by crop
+
+#Corn accuracy simply from each of the 5 forecast horizon (didn't do mean)
+ape <- split(ape_df, mape_df$crop)
+ape$Corn
+```
+
+
+```{r}
+
+#Wheat accuracy
+ape$Wheat
+
+```
+
+
+```{r}
+
+#Soy accuracy
+ape$Soy
+
+```
