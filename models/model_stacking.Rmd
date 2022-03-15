@@ -15,81 +15,24 @@ knitr::opts_chunk$set(echo = TRUE)
 library(dplyr)
 library(ggplot2)
 library(caret)
+library(randomForest)
 ```
 
-### Simply take the average of the model predictions
+```{r}
+baseline_preds <- read.csv("../data/baseline_predictions.csv")
 
-```{r eval=FALSE, include=FALSE}
-mean_preds <- corn_preds %>% 
-  mutate(mean_pred = rowMeans(corn_preds %>% select(-Year)))
-```
-
-```{r eval=FALSE, include=FALSE}
-plot_df <- ag_df %>%
-  dplyr::select(c("Year", "Corn_BUperAcre")) %>%
-  left_join(., mean_preds, by="Year") %>%
-  dplyr::select(c("Year", "Corn_BUperAcre", "mean_pred"))
-
-ggplot(data = plot_df) + 
-  geom_line(aes(x=Year, y=Corn_BUperAcre)) + 
-  geom_line(aes(x=Year, y=mean_pred, color="prediction"))
+corn_baseline_preds <- baseline_preds %>% filter(crop == "corn")
+wheat_baseline_preds <- baseline_preds %>% filter(crop == "wheat")
+soy_baseline_preds <- baseline_preds %>% filter(crop == "soy")
 ```
 
 ### Build stacking model
 
 ```{r}
-#### creating sampling seeds ####
-set.seed(123)
-seeds <- vector(mode = "list", length = 528)
-for(i in 1:527) seeds[[i]] <- sample.int(1000, 25)
-
-## For the last model:
-seeds[[528]] <- sample.int(1000, 1)
-
-myTimeControl <- trainControl(method = "timeslice",
-                              initialWindow = 10,
-                              horizon = 5,
-                              fixedWindow = FALSE,
-                              allowParallel = TRUE,
-                              seeds = seeds)
-tuneLength.num <- 5
-
-# function to take an arbitrary number of models that use the predict() method and stack them
-fit_stacked_mdl <- function(true_values, predictions){
-  # train the stacked model with time series cross validation
-  n_models <- dim(predictions)[2]
-  
-  stacked.mod <- train(x=predictions,
-                  y=true_values,
-                  method = "lm",
-                  trControl = myTimeControl,
-                  tuneLength=tuneLength.num,
-                  metric='RMSE') # no MAPE
-  
-  print(stacked.mod$finalModel)
-  
-  return(stacked.mod)
-  
-}
-```
-
-```{r include=FALSE}
-# example set of 3 models' predictions, just combine them and pass into fit_stacked_mdl()
-#random_preds_1 <- runif(100, min=170, max=200)
-#random_preds_2 <- runif(100, min=165, max=205)
-#norm_preds <- rnorm(100, mean=185, sd=10)
-
-#predictions <- cbind(random_preds_1, random_preds_2, norm_preds)
-#true_values <- rep(corn_validation$Corn_BUperAcre, 25)
-#fit_stacked_mdl(true_values, predictions)
-```
-
-```{r}
-train_test_split <- function(commod, cutoff_year){
-  file_name <- paste0("../data/", commod, "_baseline_predictions.csv")
-  preds <- read.csv(file_name)
-  train <- preds %>% filter(year < cutoff_year)
-  test <- preds %>% filter(year >= cutoff_year)
+train_test_split <- function(predictions, test_yr){
+  # 20 year sliding window to train stacked model
+  train <- predictions %>% filter((year < test_yr) & (year >= (test_yr - 20)))
+  test <- predictions %>% filter(year == test_yr)
   
   train_test <- list("train" = train, "test" = test)
   return(train_test)
@@ -97,7 +40,41 @@ train_test_split <- function(commod, cutoff_year){
 ```
 
 ```{r}
-# calculate MAPE for each model
+predict_stacked_mdl <- function(predictions){
+  set.seed(6307)
+  
+  stacked_mdl_preds <- c()
+  
+  for (test_yr in 2016:2020){
+    
+    # split into training and testing sets for X and y
+    train_test <- train_test_split(predictions, test_yr)
+    train <- train_test$train %>% select(naive_t.1, holt_t.1, arima_t.1, true_value_t.1)
+    test <- train_test$test %>% select(naive_t.1, holt_t.1, arima_t.1, true_value_t.1)
+    
+    # train stacking model
+    #stacking_mdl <- glm(true_value_t.1 ~ naive_t.1 + holt_t.1 + arima_t.1, data=train)
+    # linear model did not perform very well
+    stacking_mdl <- randomForest(true_value_t.1 ~ ., data=train, ntree=1000, importance=TRUE)
+    
+    # predict on following year
+    new_row <- c(test_yr, predict(stacking_mdl, test), test$true_value_t.1)
+    stacked_mdl_preds <- rbind(stacked_mdl_preds, new_row)
+  
+  }
+  colnames(stacked_mdl_preds) <- c("year", "forecast", "actual")
+  return(stacked_mdl_preds %>% as.data.frame())
+}
+```
+
+```{r}
+# stacked model predictions for 2017-2021
+corn_stacked_preds <- predict_stacked_mdl(corn_baseline_preds)
+wheat_stacked_preds <- predict_stacked_mdl(wheat_baseline_preds)
+soy_stacked_preds <- predict_stacked_mdl(soy_baseline_preds)
+```
+
+```{r}
 get_MAPE <- function(true_values, predictions){
   ape <- ((abs(true_values - predictions)) / abs(true_values)) * 100
   mape <- round(mean(ape), digits = 2)
@@ -105,64 +82,64 @@ get_MAPE <- function(true_values, predictions){
 }
 ```
 
-```{r}
-baseline_models <- c("naive", "drift", "holt", "arima")
-commodities <- list("corn", "wheat", "soy")
+### Compare Models using MAPE
 
-for (commod in commodities){
-  train_test <- train_test_split(commod, 2017)
-  train <- train_test$train
-  test <- train_test$test
+```{r}
+print("stacked model")
+get_MAPE(corn_stacked_preds$actual, corn_stacked_preds$forecast)
+get_MAPE(wheat_stacked_preds$actual, wheat_stacked_preds$forecast)
+get_MAPE(soy_stacked_preds$actual, soy_stacked_preds$forecast)
+```
+
+```{r}
+corn_baseline_preds_subset <- corn_baseline_preds %>% filter(year >= 2016)
+wheat_baseline_preds_subset <- wheat_baseline_preds %>% filter(year >= 2016)
+soy_baseline_preds_subset <- soy_baseline_preds %>% filter(year >= 2016)
+```
+
+
+```{r}
+print("naive model")
+get_MAPE(corn_baseline_preds_subset$naive_t.1, corn_baseline_preds_subset$true_value_t.1)
+get_MAPE(wheat_baseline_preds_subset$naive_t.1, wheat_baseline_preds_subset$true_value_t.1)
+get_MAPE(soy_baseline_preds_subset$naive_t.1, soy_baseline_preds_subset$true_value_t.1)
+```
+
+```{r}
+print("Holt model")
+get_MAPE(corn_baseline_preds_subset$holt_t.1, corn_baseline_preds_subset$true_value_t.1)
+get_MAPE(wheat_baseline_preds_subset$holt_t.1, wheat_baseline_preds_subset$true_value_t.1)
+get_MAPE(soy_baseline_preds_subset$holt_t.1, soy_baseline_preds_subset$true_value_t.1)
+```
+
+```{r}
+print("ARIMA model")
+get_MAPE(corn_baseline_preds_subset$arima_t.1, corn_baseline_preds_subset$true_value_t.1)
+get_MAPE(wheat_baseline_preds_subset$arima_t.1, wheat_baseline_preds_subset$true_value_t.1)
+get_MAPE(soy_baseline_preds_subset$arima_t.1, soy_baseline_preds_subset$true_value_t.1)
+```
+
+## Plot forecasts
+
+```{r}
+plot_predictions <- function(regular_preds, stacked_preds, commodity){
   
-  y_train <- train$true_value
-  X_train <- train %>% select(naive, drift, holt, arima)
-  y_test <- test$true_value
-  X_test <- test %>% select(naive, drift, holt, arima)
+  baseline_plot_df <- regular_preds %>% filter(year >= 2016)
   
-  stacked.mod <- fit_stacked_mdl(y_train, X_train)
-  
-  #print(stacked.mod)
-  
-  mdl_forecast <- predict(stacked.mod, X_test)
-  mape <- get_MAPE(y_test, mdl_forecast)
-  print(mape)
-  plot_forecast <- c(rep(NA, 2017-1980), mdl_forecast)
-  
-  plot(c(train_test$train$true_value, train_test$test$true_value), type='l', main=commod)
-  lines(plot_forecast, col='red')
+  ggplot() + 
+    geom_line(data=regular_preds, aes(x=year+1, y=true_value_t.1)) + 
+    geom_line(data=stacked_preds, aes(x=year+1, y=forecast, color='stacked')) + 
+    geom_line(data=baseline_plot_df, aes(x=year+1, y=naive_t.1, color='naive')) + 
+    geom_line(data=baseline_plot_df, aes(x=year+1, y=holt_t.1, color='Holt')) + 
+    geom_line(data=baseline_plot_df, aes(x=year+1, y=arima_t.1, color='ARIMA')) + 
+    ggtitle(commodity) + 
+    xlab("Year")
   
 }
 ```
 
-
 ```{r}
-train_test <- train_test_split("corn", 2017)
-corn_X_test <- train_test$test %>% select(baseline_models)
-corn_y_test <- train_test$test$true_value
-sapply(corn_X_test, function(x) get_MAPE(corn_y_test, x))
-
-plot(c(train_test$train$true_value, train_test$test$true_value), type='l', main='Corn')
-sapply(corn_X_test, function(x) lines(c(rep(NA, 2017-1980), x), col=x))
+plot_predictions(corn_baseline_preds, corn_stacked_preds, "corn")
+plot_predictions(wheat_baseline_preds, wheat_stacked_preds, "wheat")
+plot_predictions(soy_baseline_preds, soy_stacked_preds, "soy")
 ```
-
-```{r}
-train_test <- train_test_split("wheat", 2017)
-wheat_X_test <- train_test$test %>% select(baseline_models)
-wheat_y_test <- train_test$test$true_value
-sapply(wheat_X_test, function(x) get_MAPE(wheat_y_test, x))
-
-plot(c(train_test$train$true_value, train_test$test$true_value), type='l', main='Wheat')
-sapply(wheat_X_test, function(x) lines(c(rep(NA, 2017-1980), x), col=x))
-```
-
-
-```{r}
-train_test <- train_test_split("soy", 2017)
-soy_X_test <- train_test$test %>% select(baseline_models)
-soy_y_test <- train_test$test$true_value
-sapply(soy_X_test, function(x) get_MAPE(soy_y_test, x))
-
-plot(c(train_test$train$true_value, train_test$test$true_value), type='l', main='Soy')
-sapply(soy_X_test, function(x) lines(c(rep(NA, 2017-1980), x), col=x))
-```
-
