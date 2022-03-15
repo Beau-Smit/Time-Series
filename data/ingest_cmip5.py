@@ -55,6 +55,8 @@ def ingest_cmip5(download_dir, out_dir, bin_lens = ['month', 'year']):
             "DTR",  # Mean of diurnal temperature range
         ]
 
+        n_grid_points = westMN.dims['lat'] * westMN.dims['lon']
+
         for bin_len in bin_lens:
             if bin_len == 'month':
                 step = 3 #number of 10 day windows in a month
@@ -63,23 +65,23 @@ def ingest_cmip5(download_dir, out_dir, bin_lens = ['month', 'year']):
             left_bin = westMN.time[np.arange(0, westMN.dims["time"], step)]\
                 .to_numpy()
 
-
             if var in sum_vars:
+                bin_len
                 aggWestMN = westMN.groupby_bins("time", left_bin).sum(
                     dim=["time", "lat", "lon"]
-                )
+                ) / n_grid_points
             elif var in max_vars:
                 aggWestMN = westMN.groupby_bins("time", left_bin).max(
                     dim=["time", "lat", "lon"]
-                )
+                ) / n_grid_points
             elif var in min_vars:
                 aggWestMN = westMN.groupby_bins("time", left_bin).min(
                     dim=["time", "lat", "lon"]
-                )
+                ) / n_grid_points
             elif var in mean_vars:
                 aggWestMN = westMN.groupby_bins("time", left_bin).mean(
                     dim=["time", "lat", "lon"]
-                )
+                ) / n_grid_points
             else:
                 raise ValueError("Variable " + var + " has no defined aggregation!")
 
