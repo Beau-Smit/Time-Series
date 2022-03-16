@@ -327,7 +327,7 @@ for (first_test_yr in 1998:2016){
 
 prediction_df <- rbind(corn_preds,wheat_preds,soy_preds) %>% as.data.frame()
 
-colnames(prediction_df) <- c("year", "crop", "rf t+1", "rf t+2", "rf t+3", "rf t+4", "rf t+5","true_value_t+1", "true_value_t+2", "true_value_t+3", "true_value_t+4", "true_value_t+5")
+colnames(prediction_df) <- c("year", "crop", "rf t+1", "rf t+2", "rf t+3", "rf t+4", "rf t+5","gbm t+1", "gbm t+2", "gbm t+3", "gbm t+4", "gbm t+5","true_value_t+1", "true_value_t+2", "true_value_t+3", "true_value_t+4", "true_value_t+5")
 
 ```
 
