@@ -304,8 +304,8 @@ for (first_test_yr in 1998:2020){
   corn_preds <- rbind(corn_preds, corn_row)
   
   wheat_embed_tst <- embed(wheat_ts,5)
-  wheat_train <- window(ts(corn_embed_tst,start=1938), start=first_test_yr-60, end=first_test_yr)
-  wheat_test <- window(ts(corn_embed_tst,start=1938), start=first_test_yr+1,end=first_test_yr+horizon)
+  wheat_train <- window(ts(wheat_embed_tst,start=1938), start=first_test_yr-60, end=first_test_yr)
+  wheat_test <- window(ts(wheat_embed_tst,start=1938), start=first_test_yr+1,end=first_test_yr+horizon)
 
   wheat_row <- c(first_test_yr, "wheat",rf_predictions(wheat_train, wheat_test), wheat_test[0:horizon])
   wheat_preds <- rbind(wheat_preds, wheat_row)
@@ -314,7 +314,7 @@ for (first_test_yr in 1998:2020){
   soy_train <- window(ts(soy_embed_tst,start=1938), start=first_test_yr-60, end=first_test_yr)
   soy_test <- window(ts(soy_embed_tst,start=1938), start=first_test_yr+1,end=first_test_yr+horizon)
   
-  soy_row <- c(first_test_yr, "wheat",rf_predictions(soy_train, soy_test),soy_test[0:horizon])
+  soy_row <- c(first_test_yr, "soy",rf_predictions(soy_train, soy_test),soy_test[0:horizon])
   soy_preds <- rbind(soy_preds, soy_row)
 
 }
