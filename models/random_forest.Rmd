@@ -88,13 +88,13 @@ y_train_soy <- head(soy_embed[, 1],77) # the target
 X_train_soy <- head(soy_embed[, -1],77) # everything but the target
 
 y_test_corn <- window(corn_ts, start = c(2016), end = c(2020))
-X_test_corn <- tail(corn_embed[,-1])
+X_test_corn <- tail(corn_embed[,-1],5)
 
 y_test_soy <- window(soy_ts, start = c(2016), end = c(2020))
-X_test_soy <- tail(soy_embed[,-1])
+X_test_soy <- tail(soy_embed[,-1],5)
 
 y_test_wheat <- window(wheat_ts, start = c(2016), end = c(2020))
-X_test_wheat <- tail(wheat_embed[,-1])
+X_test_wheat <- tail(wheat_embed[,-1],5)
 ```
 
 ```{r ts_crossval}
@@ -182,8 +182,6 @@ forecasts_gbm_wheat <- predict(gbm.mod.wheat, X_test_wheat)
 ```
 
 ```{r}
-#TODO: Update the graphs for the remaining Soy and Wheat.
-
 # convert to ts format
 y_pred_rf_corn <- ts(
   forecasts_rf_corn,
@@ -255,5 +253,85 @@ accuracy(y_pred_gbm_wheat, y_test_wheat)
 
 accuracy(y_pred_rf_soy, y_test_soy)
 accuracy(y_pred_gbm_soy, y_test_soy)
+```
+
+```{r}
+rf.mod.corn[['results']]
+```
+
+
+### Alternative CV
+
+```{r predictive_function}
+
+rf_predictions <- function(train,test){
+  
+  rf_model <- randomForest(x=train[,-1],y=train[,1])
+  rf_preds <- (predict(rf_model,test[,-1]))
+  preds_row <- c(rf_preds)
+  return(preds_row)
+}
+
+gbm_predictions <- function(train,test){
+  
+  gbm_model <- gbm(T ~ ., data = train,distribution = "gaussian",n.trees = 10000,
+                  shrinkage = 0.01, interaction.depth = 4)
+  gbm_preds <- (predict(gbm_model,test[,-1]))
+  preds_row <- c(gbm_preds)
+  return(preds_row)
+}
+```
+
+
+```{r ts_cv}
+
+corn_preds <- c()
+wheat_preds <- c()
+soy_preds <- c()
+
+lag_order <- 6 # the desired number of lags (6 years)
+horizon <- 5 # the forecast horizon (5 years)
+
+for (first_test_yr in 1998:2016){
+  
+  # Corn Embedded
+  corn_embed_tst <- embed(corn_ts,5)
+  corn_train <- window(ts(corn_embed_tst,start=1938), start=first_test_yr-60, end=first_test_yr)
+  corn_test <- window(ts(corn_embed_tst,start=1938), start=first_test_yr+1,end=first_test_yr+5)
+  colnames(corn_train) <- c("T","T-1","T-2","T-3","T-4")
+  colnames(corn_test) <- c("T","T-1","T-2","T-3","T-4")
+  
+  # get all baseline model predictions and add in first test year and true value
+  corn_row <- c(first_test_yr, "corn", rf_predictions(corn_train, corn_test), gbm_predictions(corn_train,corn_test),corn_test[0:5])
+  corn_preds <- rbind(corn_preds, corn_row)
+  
+  wheat_embed_tst <- embed(wheat_ts,5)
+  wheat_train <- window(ts(corn_embed_tst,start=1938), start=first_test_yr-60, end=first_test_yr)
+  wheat_test <- window(ts(corn_embed_tst,start=1938), start=first_test_yr+1,end=first_test_yr+5)
+  colnames(wheat_train) <- c("T","T-1","T-2","T-3","T-4")
+  colnames(wheat_test) <- c("T","T-1","T-2","T-3","T-4")
+  
+  wheat_row <- c(first_test_yr, "wheat",rf_predictions(wheat_train, wheat_test), gbm_predictions(wheat_train, wheat_test), wheat_test[0:5])
+  wheat_preds <- rbind(wheat_preds, wheat_row)
+
+  soy_embed_tst <- embed(soy_ts,5)
+  soy_train <- window(ts(soy_embed_tst,start=1938), start=first_test_yr-60, end=first_test_yr)
+  soy_test <- window(ts(soy_embed_tst,start=1938), start=first_test_yr+1,end=first_test_yr+5)
+  colnames(soy_train) <- c("T","T-1","T-2","T-3","T-4")
+  colnames(soy_test) <- c("T","T-1","T-2","T-3","T-4")
+  
+  soy_row <- c(first_test_yr, "wheat",rf_predictions(soy_train, soy_test), gbm_predictions(soy_train, soy_test),soy_test[0:5])
+  soy_preds <- rbind(soy_preds, soy_row)
+
+}
+
+prediction_df <- rbind(corn_preds,wheat_preds,soy_preds) %>% as.data.frame()
+
+colnames(prediction_df) <- c("year", "crop", "rf t+1", "rf t+2", "rf t+3", "rf t+4", "rf t+5","true_value_t+1", "true_value_t+2", "true_value_t+3", "true_value_t+4", "true_value_t+5")
+
+```
+
+```{r}
+write.csv(prediction_df, "../data/tree_predictions.csv", row.names = FALSE)
 ```
 
